@@ -1,13 +1,20 @@
 #include <commons/config.h>
+#include <commons/log.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <utils/connection.h>
 #include <utils/packet.h>
 #include <utils/person.h>
 
-void gestionar_cpu(char *puerto_escucha) {
+t_log *logger;
+t_config *config;
 
+void *gestionar_escucha(void *args) {
+
+  char *puerto_escucha = config_get_string_value(config, "PUERTO_ESCUCHA");
   int server_socket = connection_create_server(puerto_escucha);
+  log_debug(logger, "Servidor levantado en el puerto %s", puerto_escucha);
+
   int cpu_socket = connection_accept_client(server_socket);
 
   packet_t *packet = packet_create();
@@ -30,8 +37,7 @@ void gestionar_cpu(char *puerto_escucha) {
     exit(1);
   }
 
-  connection_close(cpu_socket);
-  connection_close(server_socket);
+  return args;
 }
 
 int main(int argc, char *argv[]) {
@@ -39,12 +45,11 @@ int main(int argc, char *argv[]) {
   if (argc < 2)
     return 1;
 
-  t_config *config = config_create(argv[1]);
+  config = config_create(argv[1]);
   if (config == NULL)
     return 2;
 
-  // config conexiones
-  char *puerto_escucha = config_get_string_value(config, "PUERTO_ESCUCHA");
+  logger = log_create("memoria.log", "MEMORIA", 1, LOG_LEVEL_DEBUG);
 
   // config del modulo
   int tam_memoria = config_get_int_value(config, "TAM_MEMORIA");
@@ -54,8 +59,9 @@ int main(int argc, char *argv[]) {
   int cantidad_entradas_tlb = config_get_int_value(config, "RETARDO_RESPUESTA");
 
   // prueba
-  gestionar_cpu(puerto_escucha);
+  gestionar_escucha(NULL);
 
+  log_destroy(logger);
   config_destroy(config);
   return 0;
 }
