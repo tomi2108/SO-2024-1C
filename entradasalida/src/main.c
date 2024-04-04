@@ -27,9 +27,12 @@ void *gestionar_memoria(void *args) {
 
 int main(int argc, char *argv[]) {
 
-  t_config *config = config_create("entradasalida.config");
-  if (config == NULL)
+  if (argc < 2)
     return 1;
+
+  t_config *config = config_create(argv[1]);
+  if (config == NULL)
+    return 2;
 
   // config conexiones
   char *ip_kernel = config_get_string_value(config, "IP_KERNEL");

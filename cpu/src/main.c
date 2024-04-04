@@ -36,9 +36,12 @@ void *gestionar_interrumpt(void *args) {
 
 int main(int argc, char *argv[]) {
 
-  t_config *config = config_create("cpu.config");
-  if (config == NULL)
+  if (argc < 2)
     return 1;
+
+  t_config *config = config_create(argv[1]);
+  if (config == NULL)
+    return 2;
 
   // config conexiones
   char *ip_memoria = config_get_string_value(config, "IP_MEMORIA");
@@ -52,7 +55,6 @@ int main(int argc, char *argv[]) {
   int cantidad_entradas_tlb =
       config_get_int_value(config, "CANTIDAD_ENTRADAS_TLB");
   char *algoritmo_tlb = config_get_string_value(config, "ALGORITMO_TLB");
-
   // prueba
   gestionar_memoria(ip_memoria, puerto_memoria);
 

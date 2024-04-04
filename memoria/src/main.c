@@ -36,9 +36,12 @@ void gestionar_cpu(char *puerto_escucha) {
 
 int main(int argc, char *argv[]) {
 
-  t_config *config = config_create("memoria.config");
-  if (config == NULL)
+  if (argc < 2)
     return 1;
+
+  t_config *config = config_create(argv[1]);
+  if (config == NULL)
+    return 2;
 
   // config conexiones
   char *puerto_escucha = config_get_string_value(config, "PUERTO_ESCUCHA");
