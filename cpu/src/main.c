@@ -15,7 +15,7 @@ void *gestionar_memoria(void *args) {
   int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
   person_t person = {432, 12, 100, "Tomas Sanchez"};
 
-  packet_t *packet = packet_create();
+  packet_t *packet = packet_create(CPU);
   person_pack(packet, person);
   packet_send(packet, socket_memoria);
 

@@ -7,19 +7,21 @@
 #include <stdlib.h>
 #include <sys/socket.h>
 
-typedef enum { PERSON = 1 } packettype_t;
-
+typedef enum { PERSON = 1 } packet_type;
+typedef enum { KERNEL = 1, CPU = 2, IO = 3, MEMORY = 4 } packet_author;
 typedef struct {
-  packettype_t type;
+  packet_type type;
   buffer_t *buffer;
+  packet_author author;
 } packet_t;
 
 /**
  * @fn     packet_create
+ * @param  author Author of the packet
  * @return The packet created
  * @brief  Creates a packet without a type and with an empty buffer
  */
-packet_t *packet_create(void);
+packet_t *packet_create(packet_author author);
 
 /**
  * @fn     packet_destroy
@@ -112,6 +114,6 @@ void packet_send(packet_t *packet, int socket);
  * @brief  Blocks until socket recieves a packet and then stores it in packet
  * pointer
  */
-packettype_t packet_recieve(packet_t *packet, int socket);
+packet_type packet_recieve(packet_t *packet, int socket);
 
 #endif

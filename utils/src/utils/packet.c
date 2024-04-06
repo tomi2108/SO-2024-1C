@@ -1,13 +1,14 @@
 #include "packet.h"
 #include "buffer.h"
 
-packet_t *packet_create(void) {
+packet_t *packet_create(packet_author author) {
   packet_t *packet = malloc(sizeof(packet_t));
   if (packet == NULL)
     return NULL;
 
   packet->buffer = buffer_create();
-
+  if (author)
+    packet->author = author;
   return packet;
 }
 
@@ -52,7 +53,8 @@ char *packet_read_string(packet_t *packet, uint32_t *length) {
 void packet_send(packet_t *packet, int socket) {
   buffer_t *send_buffer = buffer_create();
 
-  buffer_add(send_buffer, &packet->type, sizeof(packettype_t));
+  buffer_add(send_buffer, &packet->author, sizeof(packet_author));
+  buffer_add(send_buffer, &packet->type, sizeof(packet_type));
   buffer_add_uint32(send_buffer, packet->buffer->size);
   buffer_add(send_buffer, packet->buffer->stream, packet->buffer->size);
 
@@ -60,11 +62,12 @@ void packet_send(packet_t *packet, int socket) {
   buffer_destroy(send_buffer);
 }
 
-packettype_t packet_recieve(packet_t *packet, int socket) {
+packet_type packet_recieve(packet_t *packet, int socket) {
   if (packet->buffer->stream != NULL)
     return -1;
 
-  recv(socket, &(packet->type), sizeof(packettype_t), MSG_WAITALL);
+  recv(socket, &(packet->author), sizeof(packet_author), MSG_WAITALL);
+  recv(socket, &(packet->type), sizeof(packet_type), MSG_WAITALL);
   recv(socket, &(packet->buffer->size), sizeof(uint32_t), MSG_WAITALL);
 
   packet->buffer->stream = malloc(packet->buffer->size);

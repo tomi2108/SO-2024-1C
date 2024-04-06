@@ -16,7 +16,7 @@ typedef struct {
 /**
  * @fn     person_pack
  * @param  packet Packet where the person will be packed, created with
- * packet_create()
+ * packet_create(1)
  * @param  person Person to pack
  * @return Modified packet
  * @brief  Packs a person inside a packet ready to be sent with packet_send(2)

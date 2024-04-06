@@ -17,13 +17,14 @@ void *gestionar_escucha(void *args) {
 
   int cpu_socket = connection_accept_client(server_socket);
 
-  packet_t *packet = packet_create();
-  packettype_t packet_type = packet_recieve(packet, cpu_socket);
+  packet_t *packet = packet_create(0);
+  packet_type packet_type = packet_recieve(packet, cpu_socket);
   connection_close(cpu_socket);
   connection_close(server_socket);
 
-  switch (packet_type) {
+  log_debug(logger, "El siguiente paquete me lo envio %d", packet->author);
 
+  switch (packet_type) {
   case PERSON: {
     person_t person = person_unpack(packet);
     packet_destroy(packet);
