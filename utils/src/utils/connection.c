@@ -1,5 +1,9 @@
 #include "connection.h"
 
+void handshake_server(void) {}
+
+void handshake_client(void) {}
+
 int connection_create_client(char *server_ip, char *server_port) {
   int err;
   struct addrinfo hints;
@@ -22,6 +26,7 @@ int connection_create_client(char *server_ip, char *server_port) {
     return err;
 
   freeaddrinfo(server_info);
+  handshake_client();
   return fd_socket;
 }
 
@@ -51,6 +56,7 @@ int connection_create_server(char *port) {
   if (err != 0)
     return err;
 
+  handshake_server();
   freeaddrinfo(server_info);
   return fd_escucha;
 }

@@ -68,6 +68,7 @@ void interfaz_stdin(uint32_t direccion_fisica) {
 
   packet_t *packet_res = packet_create(0);
   packet_recieve(packet_res, socket_memoria);
+  connection_close(socket_memoria);
   uint32_t res = packet_read_uint32(packet_res);
   packet_destroy(packet_res);
 
@@ -79,7 +80,6 @@ void interfaz_stdin(uint32_t direccion_fisica) {
   else
     log_info(logger, "Se escribio %s en la direccion %u", input,
              direccion_fisica);
-  connection_close(socket_memoria);
 }
 void interfaz_dialfs() {
   char *path_base_dialfs = config_get_string_value(config, "PATH_BASE_DIALFS");
