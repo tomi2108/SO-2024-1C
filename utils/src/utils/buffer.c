@@ -38,7 +38,7 @@ void buffer_add_uint8(buffer_t *buffer, uint8_t data) {
 }
 
 void buffer_add_string(buffer_t *buffer, uint32_t length, char *string) {
-  buffer_add(buffer, string, sizeof(char) * length + 1);
+  buffer_add(buffer, string, sizeof(char) * (length + 1));
 }
 
 uint32_t buffer_read_uint32(buffer_t *buffer) {
@@ -55,6 +55,6 @@ uint8_t buffer_read_uint8(buffer_t *buffer) {
 
 char *buffer_read_string(buffer_t *buffer, uint32_t length) {
   char *res = malloc(sizeof(char) * length + 1);
-  buffer_read(buffer, res, sizeof(char) * length + 1);
+  buffer_read(buffer, res, sizeof(char) * (length + 1));
   return res;
 }

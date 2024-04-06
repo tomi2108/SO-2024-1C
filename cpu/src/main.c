@@ -55,7 +55,6 @@ int main(int argc, char *argv[]) {
 
   logger = log_create("cpu.log", "CPU", 1, LOG_LEVEL_DEBUG);
 
-  // config del modulo
   int cantidad_entradas_tlb =
       config_get_int_value(config, "CANTIDAD_ENTRADAS_TLB");
   char *algoritmo_tlb = config_get_string_value(config, "ALGORITMO_TLB");

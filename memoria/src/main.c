@@ -52,7 +52,6 @@ int main(int argc, char *argv[]) {
 
   logger = log_create("memoria.log", "MEMORIA", 1, LOG_LEVEL_DEBUG);
 
-  // config del modulo
   int tam_memoria = config_get_int_value(config, "TAM_MEMORIA");
   int tam_pagina = config_get_int_value(config, "TAM_PAGINA");
   char *PATH_INSTRUCCIONES =
