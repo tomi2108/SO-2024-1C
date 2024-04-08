@@ -75,3 +75,13 @@ packet_type packet_recieve(packet_t *packet, int socket) {
 
   return packet->type;
 }
+
+packet_t *packet_dup(packet_t *packet) {
+  packet_t *duplicated = packet_create(0);
+
+  duplicated->type = packet->type;
+  duplicated->author = packet->author;
+  duplicated->buffer = buffer_dup(packet->buffer);
+
+  return duplicated;
+};

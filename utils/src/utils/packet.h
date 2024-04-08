@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <sys/socket.h>
 
-typedef enum { PERSON = 1 } packet_type;
+typedef enum { PERSON = 1, INSTRUCTION } packet_type;
 typedef enum { KERNEL = 1, CPU = 2, IO = 3, MEMORY = 4 } packet_author;
 typedef struct {
   packet_type type;
@@ -116,4 +116,11 @@ void packet_send(packet_t *packet, int socket);
  */
 packet_type packet_recieve(packet_t *packet, int socket);
 
+/**
+ * @fn     packet_dup
+ * @param  packet Packet to duplicate
+ * @return A new packet that must be destroyed with packet_destroy(1)
+ * @brief  Creates a new packet duplicated from the given packet.
+ */
+packet_t *packet_dup(packet_t *packet);
 #endif

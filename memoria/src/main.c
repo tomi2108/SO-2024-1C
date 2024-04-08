@@ -1,44 +1,72 @@
+#include <commons/collections/list.h>
 #include <commons/config.h>
 #include <commons/log.h>
-#include <stdio.h>
-#include <stdlib.h>
+#include <pthread.h>
 #include <utils/connection.h>
+#include <utils/instruction.h>
 #include <utils/packet.h>
-#include <utils/person.h>
 
 t_log *logger;
 t_config *config;
 
-void *gestionar_escucha(void *args) {
+struct thread_args {
+  packet_t *packet;
+  int socket;
+};
 
-  char *puerto_escucha = config_get_string_value(config, "PUERTO_ESCUCHA");
-  int server_socket = connection_create_server(puerto_escucha);
-  log_debug(logger, "Servidor levantado en el puerto %s", puerto_escucha);
+instruction_t fetch_instruction(uint32_t program_counter,
+                                char *instruction_path) {
+  instruction_t ins;
+  ins.params = list_create();
+  return ins;
+}
 
-  int cpu_socket = connection_accept_client(server_socket);
+void *atender_cpu(void *args) {
+  struct thread_args *th_args = (struct thread_args *)args;
+  packet_t *packet = th_args->packet;
+  int client_socket = th_args->socket;
 
-  packet_t *packet = packet_create(0);
-  packet_type packet_type = packet_recieve(packet, cpu_socket);
-  connection_close(cpu_socket);
-  connection_close(server_socket);
+  // if packet->type == fetch_instruccion
+  uint32_t program_counter = packet_read_uint32(packet);
+  char *instruction_path = packet_read_string(packet, NULL);
+  packet_destroy(packet);
 
-  log_debug(logger, "El siguiente paquete me lo envio %d", packet->author);
+  instruction_t instruction =
+      fetch_instruction(program_counter, instruction_path);
 
-  switch (packet_type) {
-  case PERSON: {
-    person_t person = person_unpack(packet);
-    packet_destroy(packet);
-    printf("%u, %u, %u, %s", person.dni, person.age, person.passport,
-           person.name);
-    fflush(stdout);
-    free(person.name);
-    break;
-  };
-  default:
-    exit(1);
-  }
+  packet_t *res = packet_create(MEMORY);
 
-  return args;
+  instruction_pack(res, instruction);
+  list_destroy(instruction.params);
+
+  packet_send(res, client_socket);
+  packet_destroy(res);
+
+  connection_close(client_socket);
+  free(th_args);
+  return 0;
+}
+
+void *atender_kernel(void *args) {
+  struct thread_args *th_args = (struct thread_args *)args;
+  packet_t *packet = th_args->packet;
+  int client_socket = th_args->socket;
+
+  packet_destroy(packet);
+  connection_close(client_socket);
+  free(th_args);
+  return 0;
+}
+
+void *atender_io(void *args) {
+  struct thread_args *th_args = (struct thread_args *)args;
+  packet_t *packet = th_args->packet;
+  int client_socket = th_args->socket;
+
+  packet_destroy(packet);
+  connection_close(client_socket);
+  free(th_args);
+  return 0;
 }
 
 int main(int argc, char *argv[]) {
@@ -58,8 +86,41 @@ int main(int argc, char *argv[]) {
       config_get_string_value(config, "PATH_INSTRUCCIONES");
   int cantidad_entradas_tlb = config_get_int_value(config, "RETARDO_RESPUESTA");
 
-  // prueba
-  gestionar_escucha(NULL);
+  char *puerto_escucha = config_get_string_value(config, "PUERTO_ESCUCHA");
+  int server_socket = connection_create_server(puerto_escucha);
+  log_debug(logger, "Servidor levantado en el puerto %s", puerto_escucha);
+
+  while (1) {
+    int client_socket = connection_accept_client(server_socket);
+    packet_t *packet = packet_create(0);
+    packet_recieve(packet, client_socket);
+
+    struct thread_args *args = malloc(sizeof(struct thread_args));
+    args->packet = packet_dup(packet);
+    args->socket = client_socket;
+    packet_destroy(packet);
+
+    pthread_t *thread_id;
+    switch (packet->author) {
+    case CPU: {
+      pthread_create(thread_id, NULL, &atender_cpu, args);
+      pthread_detach(*thread_id);
+      break;
+    }
+    case KERNEL: {
+      pthread_create(thread_id, NULL, &atender_kernel, args);
+      pthread_detach(*thread_id);
+      break;
+    }
+    case IO: {
+      pthread_create(thread_id, NULL, &atender_io, args);
+      pthread_detach(*thread_id);
+      break;
+    }
+    default:
+      break;
+    }
+  }
 
   log_destroy(logger);
   config_destroy(config);

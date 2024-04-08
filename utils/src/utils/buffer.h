@@ -95,4 +95,12 @@ uint32_t buffer_read_uint32(buffer_t *buffer);
  */
 char *buffer_read_string(buffer_t *buffer, uint32_t length);
 
+/**
+ * @fn    buffer_dup
+ * @param  buffer Buffer to duplicate
+ * @return A new buffer that must be destroyed with buffer_destroy(1)
+ * @brief  Creates a new buffer duplicated from the given buffer.
+ */
+buffer_t *buffer_dup(buffer_t *buffer);
+
 #endif
