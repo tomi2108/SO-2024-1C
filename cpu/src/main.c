@@ -2,7 +2,6 @@
 #include <commons/log.h>
 #include <utils/connection.h>
 #include <utils/packet.h>
-#include <utils/person.h>
 
 t_log *logger;
 t_config *config;
@@ -13,14 +12,8 @@ void *gestionar_memoria(void *args) {
   char *puerto_memoria = config_get_string_value(config, "PUERTO_MEMORIA");
 
   int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
-  person_t person = {432, 12, 100, "Tomas Sanchez"};
-
-  packet_t *packet = packet_create(CPU);
-  person_pack(packet, person);
-  packet_send(packet, socket_memoria);
 
   connection_close(socket_memoria);
-  packet_destroy(packet);
   return args;
 }
 

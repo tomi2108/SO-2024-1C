@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <sys/socket.h>
 
-typedef enum { PERSON = 1, INSTRUCTION } packet_type;
+typedef enum { INSTRUCTION } packet_type;
 typedef enum { KERNEL = 1, CPU = 2, IO = 3, MEMORY = 4 } packet_author;
 typedef struct {
   packet_type type;

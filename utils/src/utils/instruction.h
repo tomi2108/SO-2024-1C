@@ -27,9 +27,10 @@ packet_t *instruction_pack(packet_t *packet, instruction_t instruction);
 
 /**
  * @fn     instruction_unpack
- * @param  packet Packet containing the instruction packed with person_pack(2)
+ * @param  packet Packet containing the instruction packed with
+ * instruction_pack(2)
  * @return Instruction struct created from the packet
- * @brief  Unpacks an instruction from a packet packed with person_pack(2)
+ * @brief  Unpacks an instruction from a packet packed with instruction_pack(2)
  */
 instruction_t instruction_unpack(packet_t *packet);
 

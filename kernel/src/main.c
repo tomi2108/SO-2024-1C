@@ -3,7 +3,6 @@
 #include <stdint.h>
 #include <utils/connection.h>
 #include <utils/packet.h>
-#include <utils/person.h>
 
 t_log *logger;
 t_config *config;
