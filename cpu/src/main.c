@@ -19,11 +19,11 @@ void *gestionar_dispatch(void *args) {
 
 void *gestionar_interrupt(void *args) {
 
-  char *puerto_interrumpt =
+  char *puerto_interrupt =
       config_get_string_value(config, "PUERTO_ESCUCHA_INTERRUPT");
-  int socket_interrumpt = connection_create_server(puerto_interrumpt);
+  int socket_interrupt = connection_create_server(puerto_interrupt);
 
-  connection_close(socket_interrumpt);
+  connection_close(socket_interrupt);
   return args;
 }
 
@@ -40,7 +40,6 @@ int main(int argc, char *argv[]) {
   if (config == NULL) {
     log_error(logger, "Error al crear la configuracion");
   }
-
   int cantidad_entradas_tlb =
       config_get_int_value(config, "CANTIDAD_ENTRADAS_TLB");
   char *algoritmo_tlb = config_get_string_value(config, "ALGORITMO_TLB");
