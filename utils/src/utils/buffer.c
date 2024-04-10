@@ -58,3 +58,13 @@ char *buffer_read_string(buffer_t *buffer, uint32_t length) {
   buffer_read(buffer, res, sizeof(char) * (length + 1));
   return res;
 }
+
+buffer_t *buffer_dup(buffer_t *buffer) {
+  buffer_t *duplicated = buffer_create();
+  duplicated->size = buffer->size;
+  duplicated->offset = buffer->offset;
+  duplicated->stream = malloc(duplicated->size);
+  memcpy(duplicated->stream, buffer->stream, buffer->size);
+
+  return duplicated;
+}
