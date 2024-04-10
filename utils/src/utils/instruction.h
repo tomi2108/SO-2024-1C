@@ -16,14 +16,12 @@ typedef struct {
 
 /**
  * @fn     instruction_pack
- * @param  packet Packet where the instruction will be packed, created with
- * packet_create(1)
  * @param  instruction Instruction to pack
  * @return Modified packet
  * @brief  Packs an instruction inside a packet ready to be sent with
- * packet_send(2)
+ * packet_send(2), the packet must be destroyed with packet_destroy(1)
  */
-packet_t *instruction_pack(packet_t *packet, instruction_t instruction);
+packet_t *instruction_pack(instruction_t instruction);
 
 /**
  * @fn     instruction_unpack

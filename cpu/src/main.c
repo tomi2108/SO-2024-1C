@@ -1,21 +1,11 @@
 #include <commons/config.h>
 #include <commons/log.h>
+#include <pthread.h>
 #include <utils/connection.h>
 #include <utils/packet.h>
 
 t_log *logger;
 t_config *config;
-
-void *gestionar_memoria(void *args) {
-
-  char *ip_memoria = config_get_string_value(config, "IP_MEMORIA");
-  char *puerto_memoria = config_get_string_value(config, "PUERTO_MEMORIA");
-
-  int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
-
-  connection_close(socket_memoria);
-  return args;
-}
 
 void *gestionar_dispatch(void *args) {
   char *puerto_dispatch =
@@ -27,7 +17,7 @@ void *gestionar_dispatch(void *args) {
   return args;
 }
 
-void *gestionar_interrumpt(void *args) {
+void *gestionar_interrupt(void *args) {
 
   char *puerto_interrumpt =
       config_get_string_value(config, "PUERTO_ESCUCHA_INTERRUPT");
@@ -39,21 +29,28 @@ void *gestionar_interrumpt(void *args) {
 
 int main(int argc, char *argv[]) {
 
-  if (argc < 2)
+  logger = log_create("cpu.log", "CPU", 1, LOG_LEVEL_DEBUG);
+
+  if (argc < 2) {
+    log_error(logger, "Especificar archivo de configuracion");
     return 1;
+  }
 
   config = config_create(argv[1]);
-  if (config == NULL)
-    return 2;
-
-  logger = log_create("cpu.log", "CPU", 1, LOG_LEVEL_DEBUG);
+  if (config == NULL) {
+    log_error(logger, "Error al crear la configuracion");
+  }
 
   int cantidad_entradas_tlb =
       config_get_int_value(config, "CANTIDAD_ENTRADAS_TLB");
   char *algoritmo_tlb = config_get_string_value(config, "ALGORITMO_TLB");
 
-  // prueba
-  gestionar_memoria(NULL);
+  pthread_t *servers[2];
+  pthread_create(servers[0], NULL, &gestionar_dispatch, NULL);
+  pthread_create(servers[1], NULL, &gestionar_interrupt, NULL);
+
+  pthread_join(*servers[0], NULL);
+  pthread_join(*servers[1], 0);
 
   log_destroy(logger);
   config_destroy(config);

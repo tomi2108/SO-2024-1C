@@ -7,21 +7,28 @@
 #include <stdlib.h>
 #include <sys/socket.h>
 
-typedef enum { INSTRUCTION } packet_type;
-typedef enum { KERNEL = 1, CPU = 2, IO = 3, MEMORY = 4 } packet_author;
+typedef enum {
+  STATUS,
+  READ_DIR,
+  WRITE_DIR,
+  INIT_PROCESS,
+  FETCH_INSTRUCTION,
+  INSTRUCTION,
+  REGISTER_IO
+} packet_type;
+
 typedef struct {
   packet_type type;
   buffer_t *buffer;
-  packet_author author;
 } packet_t;
 
 /**
  * @fn     packet_create
- * @param  author Author of the packet
+ * @param  type Type of packet
  * @return The packet created
  * @brief  Creates a packet without a type and with an empty buffer
  */
-packet_t *packet_create(packet_author author);
+packet_t *packet_create(packet_type type);
 
 /**
  * @fn     packet_destroy
@@ -108,13 +115,12 @@ void packet_send(packet_t *packet, int socket);
 
 /**
  * @fn     packet_recieve
- * @param  packet Packet to store the recieved packet
- * @parma  socket Socket file descriptor to recieve the packet
- * @return Recieved packet type or -1 if packet is not empty
+ * @param  socket Socket file descriptor to recieve the packet
+ * @return Recieved packet
  * @brief  Blocks until socket recieves a packet and then stores it in packet
- * pointer
+ * pointer which must be destroyed with packet_destroy(1)
  */
-packet_type packet_recieve(packet_t *packet, int socket);
+packet_t *packet_recieve(int socket);
 
 /**
  * @fn     packet_dup

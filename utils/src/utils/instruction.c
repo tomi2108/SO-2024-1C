@@ -3,8 +3,8 @@
 #include "packet.h"
 #include <stdint.h>
 
-packet_t *instruction_pack(packet_t *packet, instruction_t instruction) {
-  packet->type = INSTRUCTION;
+packet_t *instruction_pack(instruction_t instruction) {
+  packet_t *packet = packet_create(INSTRUCTION);
   packet_add(packet, &instruction.op, sizeof(instruction_op_t));
   packet_add_uint32(packet, list_size(instruction.params));
   t_list_iterator *iterator = list_iterator_create(instruction.params);

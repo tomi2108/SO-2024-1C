@@ -1,55 +1,78 @@
 #include <commons/config.h>
 #include <commons/log.h>
+#include <pthread.h>
 #include <stdint.h>
+#include <string.h>
 #include <utils/connection.h>
 #include <utils/packet.h>
+#include <utils/status.h>
 
 t_log *logger;
 t_config *config;
 
-void *gestionar_memoria(void *args) {
-
+void request_init_process(char *path) {
   char *puerto_memoria = config_get_string_value(config, "PUERTO_MEMORIA");
   char *ip_memoria = config_get_string_value(config, "IP_MEMORIA");
 
   int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
 
+  packet_t *packet = packet_create(INIT_PROCESS);
+  packet_add_string(packet, strlen(path), path);
+  packet_send(packet, socket_memoria);
+  packet_destroy(packet);
+
+  packet_t *res = packet_recieve(socket_memoria);
+  uint8_t status_code = status_read_packet(res);
+  if (status_code == NOT_FOUND) {
+    log_error(logger, "El archivo %s no existe", path);
+  } else if (status_code == OK) {
+    // agregar el proceso a la cola de new
+  }
+
   connection_close(socket_memoria);
-  return args;
 }
 
-void *gestionar_interfaz_generica(int socket_cliente,
-                                  packet_t *paquete_peticion,
-                                  uint32_t tiempo_espera) {
-  uint32_t nombre_length, tipo_interfaz_length;
-  char *nombre = packet_read_string(paquete_peticion, &nombre_length);
-  char *tipo_interfaz =
-      packet_read_string(paquete_peticion, &tipo_interfaz_length);
+void response_register_io(packet_t *request, int client_socket) {
+  char *nombre = packet_read_string(request, NULL);
+  char *tipo_interfaz = packet_read_string(request, NULL);
 
   log_info(logger, "Se conecto una interfaz de tipo %s y nombre %s",
            tipo_interfaz, nombre);
 
-  packet_destroy(paquete_peticion);
-  packet_t *paquete_respuesta = packet_create(KERNEL);
-  packet_add_uint32(paquete_respuesta, tiempo_espera);
+  packet_destroy(request);
 
-  packet_send(paquete_respuesta, socket_cliente);
+  // guardar el socket de la I/O para responderle cuando sea necesario
+}
 
-  packet_destroy(paquete_respuesta);
-  connection_close(socket_cliente);
-  return NULL;
+void *atender_cliente(void *args) {
+  int client_socket = *(int *)args;
+  packet_t *request = packet_recieve(client_socket);
+
+  switch (request->type) {
+  case REGISTER_IO:
+    response_register_io(request, client_socket);
+    break;
+  default:
+    break;
+  }
+
+  connection_close(client_socket);
+  free(args);
 }
 
 int main(int argc, char *argv[]) {
 
-  if (argc < 2)
+  logger = log_create("kernel.log", "KERNEL", 1, LOG_LEVEL_DEBUG);
+
+  if (argc < 2) {
+    log_error(logger, "Especificar archivo de configuracion");
     return 1;
+  }
 
   config = config_create(argv[1]);
-  if (config == NULL)
-    return 2;
-
-  logger = log_create("kernel.log", "KERNEL", 1, LOG_LEVEL_DEBUG);
+  if (config == NULL) {
+    log_error(logger, "Error al crear la configuracion");
+  }
 
   // config conexiones
   char *puerto_cpu_dispatch =
@@ -69,18 +92,20 @@ int main(int argc, char *argv[]) {
   char **recursos = config_get_array_value(config, "RECURSOS");
 
   char *puerto_escucha = config_get_string_value(config, "PUERTO_ESCUCHA");
-  int socket_escucha = connection_create_server(puerto_escucha);
+  int server_socket = connection_create_server(puerto_escucha);
 
   log_info(logger, "Servidor levantado en el puerto %s", puerto_escucha);
 
-  int socket_cliente = connection_accept_client(socket_escucha);
-  packet_t *packet = packet_create(0);
-  packet_recieve(packet, socket_cliente);
+  while (1) {
+    int client_socket = connection_accept_client(server_socket);
+    pthread_t *thread;
+    int *arg = malloc(sizeof(int));
+    *arg = client_socket;
+    pthread_create(thread, NULL, &atender_cliente, arg);
+    pthread_detach(*thread);
+  }
 
-  // if packet->author == IO && tipo_interfaz == generica....
-  gestionar_interfaz_generica(socket_cliente, packet, 2000);
-
-  connection_close(socket_escucha);
+  connection_close(server_socket);
   log_destroy(logger);
   config_destroy(config);
   return 0;
