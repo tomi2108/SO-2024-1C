@@ -25,7 +25,7 @@ typedef struct {
 /**
  * @fn     packet_create
  * @param  type Type of packet
- * @return The packet created
+ * @return The packet created or NULL if error ocurred
  * @brief  Creates a packet without a type and with an empty buffer
  */
 packet_t *packet_create(packet_type type);
@@ -42,9 +42,10 @@ void packet_destroy(packet_t *packet);
  * @param  packet Packet to add to
  * @param  data   Data to add to the packet's buffer
  * @param  size   Size of the data in bytes
+ * @return 0 if adding was successful or -1 if error ocurred
  * @brief  Adds the given data to the end of the packet's buffer
  */
-void packet_add(packet_t *packet, void *data, size_t size);
+int packet_add(packet_t *packet, void *data, size_t size);
 
 /**
  * @fn    packet_read
@@ -59,26 +60,29 @@ void packet_read(packet_t *packet, void *data, size_t size);
  * @fn     packet_add_uint32
  * @param  packet Packet to add to
  * @param  data   Data to add to the packet's buffer
+ * @return 0 if adding was successful or -1 if error ocurred
  * @brief  Adds the given data to the end of the packet's buffer
  */
-void packet_add_uint32(packet_t *packet, uint32_t data);
+int packet_add_uint32(packet_t *packet, uint32_t data);
 
 /**
  * @fn     packet_add_uint8
  * @param  packet Packet to add to
  * @param  data   Data to add to the packet's buffer
+ * @return 0 if adding was successful or -1 if error ocurred
  * @brief  Adds the given data to the end of the packet's buffer
  */
-void packet_add_uint8(packet_t *packet, uint8_t data);
+int packet_add_uint8(packet_t *packet, uint8_t data);
 
 /**
  * @fn     packet_add_string
  * @param  packet Packet to add to
  * @param  length Length of the string to add
  * @param  string String to add to the end of the packet's buffer
- * @brief  Adds the given string to the end of the packet's buffer
+ * @return 0 if adding was successful or -1 if error ocurred
+ * @brief  Adds the given data to the end of the packet's buffer
  */
-void packet_add_string(packet_t *packet, uint32_t length, char *string);
+int packet_add_string(packet_t *packet, uint32_t length, char *string);
 
 /*
  * @fn    packet_read_uint32
@@ -109,14 +113,15 @@ char *packet_read_string(packet_t *packet, uint32_t *length);
  * @fn     packet_send
  * @param  packet Packet to send
  * @param  socket Socket file descriptor to send the packet
+ * @return 0 if sending was successful or -1 if error ocurred
  * @brief  sends the packet to the given socket
  */
-void packet_send(packet_t *packet, int socket);
+int packet_send(packet_t *packet, int socket);
 
 /**
  * @fn     packet_recieve
  * @param  socket Socket file descriptor to recieve the packet
- * @return Recieved packet
+ * @return Recieved packet or NULL if error ocurred
  * @brief  Blocks until socket recieves a packet and then stores it in packet
  * pointer which must be destroyed with packet_destroy(1)
  */
@@ -125,7 +130,7 @@ packet_t *packet_recieve(int socket);
 /**
  * @fn     packet_dup
  * @param  packet Packet to duplicate
- * @return A new packet that must be destroyed with packet_destroy(1)
+ * @return A new packet that must be destroyed with packet_destroy(1) or NULL if error ocurred
  * @brief  Creates a new packet duplicated from the given packet.
  */
 packet_t *packet_dup(packet_t *packet);
