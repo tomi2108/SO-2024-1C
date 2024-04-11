@@ -32,7 +32,8 @@ int packet_add_uint8(packet_t *packet, uint8_t data) {
   return buffer_add_uint8(packet->buffer, data);
 }
 
-int packet_add_string(packet_t *packet, uint32_t length, char *string) {
+int packet_add_string(packet_t *packet, char *string) {
+  uint32_t length = strlen(string);
   int err = buffer_add_uint32(packet->buffer, length);
   int err_string = buffer_add_string(packet->buffer, length, string);
   if ((err && err_string) == 0)

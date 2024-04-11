@@ -1,3 +1,4 @@
+#include <commons/collections/queue.h>
 #include <commons/config.h>
 #include <commons/log.h>
 #include <pthread.h>
@@ -6,10 +7,14 @@
 #include <string.h>
 #include <utils/connection.h>
 #include <utils/packet.h>
+#include <utils/process.h>
 #include <utils/status.h>
 
 t_log *logger;
 t_config *config;
+t_queue *new_queue;
+t_queue *ready_queue;
+int next_pid = 1;
 
 status_code request_init_process(char *path) {
   char *puerto_memoria = config_get_string_value(config, "PUERTO_MEMORIA");
@@ -60,13 +65,26 @@ void *atender_cliente(void *args) {
 void exec_script(void);
 
 void init_process(void) {
+  int grado_multiprogramacion =
+      config_get_int_value(config, "GRADO_MULTIPROGRAMACION");
   printf("Ingresar path al archivo de instrucciones\n");
   char *path;
   scanf("%s", path);
   status_code res_status = request_init_process(path);
   if (res_status == OK) {
-    int pid;
-    // crear pcb y agregar a la cola de new
+
+    int pid = next_pid;
+    next_pid++;
+    process_t new_process;
+    new_process.path = path;
+    new_process.pid = pid;
+    new_process.status = NEW;
+    if (queue_size(ready_queue) < grado_multiprogramacion) {
+      new_process.status = READY;
+      queue_push(ready_queue, &new_process);
+    } else
+      queue_push(new_queue, &new_process);
+
     log_info(logger, "Se crea el proceso %d en NEW", pid);
   } else if (res_status == NOT_FOUND) {
     log_error(logger, "El archivo %s no existe", path);
@@ -82,6 +100,20 @@ void start_planner(void);
 void change_multiprogramming(void);
 
 void list_processes(void);
+
+void exec_process() {
+  char *puerto_cpu_dispatch =
+      config_get_string_value(config, "PUERTO_CPU_DISPATCH");
+  char *ip_cpu = config_get_string_value(config, "IP_CPU");
+
+  int cpu_socket = connection_create_client(ip_cpu, puerto_cpu_dispatch);
+
+  process_t *process = queue_pop(ready_queue);
+  packet_t *packet = process_pack(*process);
+  packet_send(packet, cpu_socket);
+  packet_destroy(packet);
+  connection_close(cpu_socket);
+}
 
 void *consola_interactiva(void *args) {
   while (1) {
@@ -128,7 +160,6 @@ void *consola_interactiva(void *args) {
 int main(int argc, char *argv[]) {
 
   logger = log_create("kernel.log", "KERNEL", 1, LOG_LEVEL_DEBUG);
-
   if (argc < 2) {
     log_error(logger, "Especificar archivo de configuracion");
     return 1;
@@ -140,21 +171,19 @@ int main(int argc, char *argv[]) {
   }
 
   // config conexiones
-  char *puerto_cpu_dispatch =
-      config_get_string_value(config, "PUERTO_CPU_DISPATCH");
   char *puerto_cpu_interrupt =
       config_get_string_value(config, "PUERTO_CPU_INTERRUPT");
-  char *ip_cpu = config_get_string_value(config, "IP_CPU");
 
   // config del modulo
   char *algoritmo_planificacion =
       config_get_string_value(config, "ALGORITMO_PLANIFICACION");
   int quantum = config_get_int_value(config, "QUANTUM");
-  int grado_multiprogramacion =
-      config_get_int_value(config, "GRADO_MULTIPROGRAMACION");
   char **instancias_recursos =
       config_get_array_value(config, "INSTANCIAS_RECURSOS");
   char **recursos = config_get_array_value(config, "RECURSOS");
+
+  new_queue = queue_create();
+  ready_queue = queue_create();
 
   char *puerto_escucha = config_get_string_value(config, "PUERTO_ESCUCHA");
   int server_socket = connection_create_server(puerto_escucha);
@@ -173,6 +202,8 @@ int main(int argc, char *argv[]) {
     pthread_detach(*thread);
   }
 
+  queue_destroy(new_queue);
+  queue_destroy(ready_queue);
   pthread_join(*console_thread, NULL);
   connection_close(server_socket);
   log_destroy(logger);

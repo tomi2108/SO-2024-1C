@@ -60,7 +60,7 @@ void interfaz_stdin(uint32_t direccion_fisica) {
                // longitud quizas ?
   scanf("%s", input);
   packet_t *packet = packet_create(WRITE_DIR);
-  packet_add_string(packet, strlen(input), input);
+  packet_add_string(packet, input);
   packet_send(packet, socket_memoria);
   packet_destroy(packet);
 
@@ -92,8 +92,8 @@ void request_register_io(char *name, char *io_type) {
 
   packet_t *request = packet_create(REGISTER_IO);
 
-  packet_add_string(request, strlen(name), name);
-  packet_add_string(request, strlen(io_type), io_type);
+  packet_add_string(request, name);
+  packet_add_string(request, io_type);
   packet_send(request, socket_kernel);
   packet_destroy(request);
 
