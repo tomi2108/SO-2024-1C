@@ -2,6 +2,7 @@
 #include <commons/log.h>
 #include <pthread.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 #include <utils/connection.h>
 #include <utils/packet.h>
@@ -10,7 +11,7 @@
 t_log *logger;
 t_config *config;
 
-void request_init_process(char *path) {
+status_code request_init_process(char *path) {
   char *puerto_memoria = config_get_string_value(config, "PUERTO_MEMORIA");
   char *ip_memoria = config_get_string_value(config, "IP_MEMORIA");
 
@@ -23,13 +24,9 @@ void request_init_process(char *path) {
 
   packet_t *res = packet_recieve(socket_memoria);
   uint8_t status_code = status_read_packet(res);
-  if (status_code == NOT_FOUND) {
-    log_error(logger, "El archivo %s no existe", path);
-  } else if (status_code == OK) {
-    // agregar el proceso a la cola de new
-  }
 
   connection_close(socket_memoria);
+  return status_code;
 }
 
 void response_register_io(packet_t *request, int client_socket) {
@@ -60,6 +57,74 @@ void *atender_cliente(void *args) {
   free(args);
 }
 
+void exec_script(void);
+
+void init_process(void) {
+  printf("Ingresar path al archivo de instrucciones\n");
+  char *path;
+  scanf("%s", path);
+  status_code res_status = request_init_process(path);
+  if (res_status == OK) {
+    int pid;
+    // crear pcb y agregar a la cola de new
+    log_info(logger, "Se crea el proceso %d en NEW", pid);
+  } else if (res_status == NOT_FOUND) {
+    log_error(logger, "El archivo %s no existe", path);
+  }
+};
+
+void end_process(void);
+
+void stop_planner(void);
+
+void start_planner(void);
+
+void change_multiprogramming(void);
+
+void list_processes(void);
+
+void *consola_interactiva(void *args) {
+  while (1) {
+    printf("+------------------------------------------+\n");
+    printf("| %-40s |\n", "1: Ejecutar script");
+    printf("| %-40s |\n", "2: Iniciar proceso");
+    printf("| %-40s |\n", "3: Finalizar proceso");
+    printf("| %-40s |\n", "4: Detener planificacion");
+    printf("| %-40s |\n", "5: Iniciar planificacion");
+    printf("| %-40s |\n", "6: Cambiar grado de multiprogramacion");
+    printf("| %-40s |\n", "7: Listar estados de procesos");
+    printf("| %-40s |\n", "Otro: Terminar proceso");
+    printf("+------------------------------------------+\n");
+    int input = getchar();
+    switch (input) {
+    case 49:
+      exec_script();
+      break;
+    case 50:
+      init_process();
+      break;
+    case 51:
+      end_process();
+      break;
+    case 52:
+      stop_planner();
+      break;
+    case 53:
+      start_planner();
+      break;
+    case 54:
+      change_multiprogramming();
+      break;
+    case 55:
+      list_processes();
+      break;
+    default:
+      return args;
+    }
+  }
+  return args;
+}
+
 int main(int argc, char *argv[]) {
 
   logger = log_create("kernel.log", "KERNEL", 1, LOG_LEVEL_DEBUG);
@@ -81,7 +146,7 @@ int main(int argc, char *argv[]) {
       config_get_string_value(config, "PUERTO_CPU_INTERRUPT");
   char *ip_cpu = config_get_string_value(config, "IP_CPU");
 
-  // confgi del modulo
+  // config del modulo
   char *algoritmo_planificacion =
       config_get_string_value(config, "ALGORITMO_PLANIFICACION");
   int quantum = config_get_int_value(config, "QUANTUM");
@@ -96,6 +161,9 @@ int main(int argc, char *argv[]) {
 
   log_info(logger, "Servidor levantado en el puerto %s", puerto_escucha);
 
+  pthread_t *console_thread;
+  pthread_create(console_thread, NULL, &consola_interactiva, NULL);
+
   while (1) {
     int client_socket = connection_accept_client(server_socket);
     pthread_t *thread;
@@ -105,6 +173,7 @@ int main(int argc, char *argv[]) {
     pthread_detach(*thread);
   }
 
+  pthread_join(*console_thread, NULL);
   connection_close(server_socket);
   log_destroy(logger);
   config_destroy(config);
