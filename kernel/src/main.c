@@ -23,7 +23,7 @@ status_code request_init_process(char *path) {
   int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
 
   packet_t *packet = packet_create(INIT_PROCESS);
-  packet_add_string(packet, strlen(path), path);
+  packet_add_string(packet, path);
   packet_send(packet, socket_memoria);
   packet_destroy(packet);
 
@@ -101,7 +101,7 @@ void change_multiprogramming(void);
 
 void list_processes(void);
 
-void exec_process() {
+void request_exec_process() {
   char *puerto_cpu_dispatch =
       config_get_string_value(config, "PUERTO_CPU_DISPATCH");
   char *ip_cpu = config_get_string_value(config, "IP_CPU");
@@ -109,9 +109,9 @@ void exec_process() {
   int cpu_socket = connection_create_client(ip_cpu, puerto_cpu_dispatch);
 
   process_t *process = queue_pop(ready_queue);
-  packet_t *packet = process_pack(*process);
-  packet_send(packet, cpu_socket);
-  packet_destroy(packet);
+  packet_t *request = process_pack(*process);
+  packet_send(request, cpu_socket);
+  packet_destroy(request);
   connection_close(cpu_socket);
 }
 
