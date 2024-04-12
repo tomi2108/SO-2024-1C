@@ -76,7 +76,7 @@ void init_process(void) {
     int pid = next_pid;
     next_pid++;
     process_t new_process;
-    new_process.path = path;
+    new_process.path = strdup(path);
     new_process.pid = pid;
     new_process.status = NEW;
     if (queue_size(ready_queue) < grado_multiprogramacion) {
@@ -111,6 +111,7 @@ void request_exec_process() {
   process_t *process = queue_pop(ready_queue);
   packet_t *request = process_pack(*process);
   packet_send(request, cpu_socket);
+  free(process->path);
   packet_destroy(request);
   connection_close(cpu_socket);
 }
