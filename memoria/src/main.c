@@ -60,28 +60,32 @@ void response_write_dir(packet_t *request, int client_socket) {}
 
 void *atender_cliente(void *args) {
   int client_socket = *(int *)args;
-  packet_t *req = packet_recieve(client_socket);
+  while (1) {
+    packet_t *req = packet_recieve(client_socket);
+    if (req == NULL)
+      break;
 
-  switch (req->type) {
-  case INIT_PROCESS:
-    response_init_process(req, client_socket);
-    break;
-  case FETCH_INSTRUCTION:
-    response_fetch_instruction(req, client_socket);
-    break;
-  case READ_DIR:
-    response_read_dir(req, client_socket);
-    break;
-  case WRITE_DIR:
-    response_write_dir(req, client_socket);
-    break;
-  default:
-    break;
+    switch (req->type) {
+    case INIT_PROCESS:
+      response_init_process(req, client_socket);
+      break;
+    case FETCH_INSTRUCTION:
+      response_fetch_instruction(req, client_socket);
+      break;
+    case READ_DIR:
+      response_read_dir(req, client_socket);
+      break;
+    case WRITE_DIR:
+      response_write_dir(req, client_socket);
+      break;
+    default:
+      break;
+    }
+    packet_destroy(req);
   }
-
-  packet_destroy(req);
   connection_close(client_socket);
   free(args);
+  return 0;
 }
 
 int main(int argc, char *argv[]) {

@@ -16,7 +16,12 @@ t_queue *new_queue;
 t_queue *ready_queue;
 int next_pid = 1;
 
+int socket_memoria;
+int socket_cpu_dispatch;
+int socket_cpu_interrupt;
+
 void print_process_queue(t_queue *queue) {
+
   if (queue_is_empty(queue))
     return;
 
@@ -38,10 +43,6 @@ void print_process_queue(t_queue *queue) {
 }
 
 status_code request_init_process(char *path) {
-  char *puerto_memoria = config_get_string_value(config, "PUERTO_MEMORIA");
-  char *ip_memoria = config_get_string_value(config, "IP_MEMORIA");
-
-  int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
 
   packet_t *packet = packet_create(INIT_PROCESS);
   packet_add_string(packet, path);
@@ -50,8 +51,8 @@ status_code request_init_process(char *path) {
 
   packet_t *res = packet_recieve(socket_memoria);
   uint8_t status_code = status_read_packet(res);
+  packet_destroy(res);
 
-  connection_close(socket_memoria);
   return status_code;
 }
 
@@ -67,17 +68,19 @@ void response_register_io(packet_t *request, int client_socket) {
 
 void *atender_cliente(void *args) {
   int client_socket = *(int *)args;
-  packet_t *request = packet_recieve(client_socket);
-
-  switch (request->type) {
-  case REGISTER_IO:
-    response_register_io(request, client_socket);
-    break;
-  default:
-    break;
+  while (1) {
+    packet_t *request = packet_recieve(client_socket);
+    if (request == NULL)
+      break;
+    switch (request->type) {
+    case REGISTER_IO:
+      response_register_io(request, client_socket);
+      break;
+    default:
+      break;
+    }
+    packet_destroy(request);
   }
-
-  packet_destroy(request);
   connection_close(client_socket);
   free(args);
   return args;
@@ -122,25 +125,19 @@ void start_planner(void);
 
 void change_multiprogramming(void);
 
-void list_processes(void){
+void list_processes(void) {
   print_process_queue(new_queue);
   print_process_queue(ready_queue);
   // imprimir el resto de procesos
 };
 
 void request_exec_process() {
-  char *puerto_cpu_dispatch =
-      config_get_string_value(config, "PUERTO_CPU_DISPATCH");
-  char *ip_cpu = config_get_string_value(config, "IP_CPU");
-
-  int cpu_socket = connection_create_client(ip_cpu, puerto_cpu_dispatch);
 
   process_t *process = queue_pop(ready_queue);
   packet_t *request = process_pack(*process);
-  packet_send(request, cpu_socket);
+  packet_send(request, socket_cpu_dispatch);
   free(process->path);
   packet_destroy(request);
-  connection_close(cpu_socket);
 }
 
 void *consola_interactiva(void *args) {
@@ -196,15 +193,25 @@ int main(int argc, char *argv[]) {
   config = config_create(argv[1]);
   if (config == NULL) {
     log_error(logger, "Error al crear la configuracion");
+    return 2;
   }
 
-  // config conexiones
+  char *ip_memoria = config_get_string_value(config, "IP_MEMORIA");
+  char *puerto_memoria = config_get_string_value(config, "PUERTO_MEMORIA");
+  socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
+
+  char *ip_cpu = config_get_string_value(config, "IP_CPU");
+  char *puerto_cpu_dispatch =
+      config_get_string_value(config, "PUERTO_CPU_DISPATCH");
+  socket_cpu_dispatch = connection_create_client(ip_cpu, puerto_cpu_dispatch);
+
   char *puerto_cpu_interrupt =
       config_get_string_value(config, "PUERTO_CPU_INTERRUPT");
+  socket_cpu_dispatch = connection_create_client(ip_cpu, puerto_cpu_interrupt);
 
-  // config del modulo
   char *algoritmo_planificacion =
       config_get_string_value(config, "ALGORITMO_PLANIFICACION");
+
   int quantum = config_get_int_value(config, "QUANTUM");
   char **instancias_recursos =
       config_get_array_value(config, "INSTANCIAS_RECURSOS");

@@ -10,6 +10,8 @@
 
 t_log *logger;
 t_config *config;
+int socket_kernel;
+int socket_memoria;
 
 void interfaz_generica(uint32_t tiempo_espera) {
   int tiempo_unidad_trabajo_ms =
@@ -30,22 +32,22 @@ void interfaz_stdout(uint32_t direccion_fisica) {
   char *ip_memoria = config_get_string_value(config, "IP_MEMORIA");
   char *puerto_memoria = config_get_string_value(config, "PUERTO_MEMORIA");
 
-  int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
+  socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
 
-  packet_t *packet = packet_create(READ_DIR);
-  packet_add_uint32(packet, direccion_fisica);
-  packet_send(packet, socket_memoria);
-  packet_destroy(packet);
+  packet_t *req = packet_create(READ_DIR);
+  packet_add_uint32(req, direccion_fisica);
+  packet_send(req, socket_memoria);
+  packet_destroy(req);
 
   packet_t *res = packet_recieve(socket_memoria);
+  connection_close(socket_memoria);
   uint32_t memory_content = packet_read_uint32(res);
   packet_destroy(res);
 
   sleep(tiempo_unidad_trabajo_ms);
   log_info(logger, "%u", memory_content);
-
-  connection_close(socket_memoria);
 }
+
 // TODO: se asume que la direccion fisica sera uint32_t verificar cuando se
 // realize el modulo memoria Probablemente agregar al paquete de req que se
 // intenta escribir la direccion con un codigo_op correspondiente se asume que
@@ -55,14 +57,16 @@ void interfaz_stdout(uint32_t direccion_fisica) {
 void interfaz_stdin(uint32_t direccion_fisica) {
   char *ip_memoria = config_get_string_value(config, "IP_MEMORIA");
   char *puerto_memoria = config_get_string_value(config, "PUERTO_MEMORIA");
-  int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
+
+  socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
   char *input; // TODO: sanitizar el input de alguna forma... restringir
                // longitud quizas ?
+
   scanf("%s", input);
-  packet_t *packet = packet_create(WRITE_DIR);
-  packet_add_string(packet, input);
-  packet_send(packet, socket_memoria);
-  packet_destroy(packet);
+  packet_t *req = packet_create(WRITE_DIR);
+  packet_add_string(req, input);
+  packet_send(req, socket_memoria);
+  packet_destroy(req);
 
   packet_t *res = packet_recieve(socket_memoria);
   connection_close(socket_memoria);
@@ -78,6 +82,7 @@ void interfaz_stdin(uint32_t direccion_fisica) {
     log_info(logger, "Se escribio %s en la direccion %u", input,
              direccion_fisica);
 }
+
 void interfaz_dialfs() {
   char *path_base_dialfs = config_get_string_value(config, "PATH_BASE_DIALFS");
   int block_size = config_get_int_value(config, "BLOCK_SIZE");
@@ -85,10 +90,6 @@ void interfaz_dialfs() {
 }
 
 void request_register_io(char *name, char *io_type) {
-  char *ip_kernel = config_get_string_value(config, "IP_KERNEL");
-  char *puerto_kernel = config_get_string_value(config, "PUERTO_KERNEL");
-
-  int socket_kernel = connection_create_client(ip_kernel, puerto_kernel);
 
   packet_t *request = packet_create(REGISTER_IO);
 
@@ -118,6 +119,11 @@ uint8_t is_io_type_supported(char *io_type) {
 }
 
 int main(int argc, char *argv[]) {
+
+  char *ip_kernel = config_get_string_value(config, "IP_KERNEL");
+  char *puerto_kernel = config_get_string_value(config, "PUERTO_KERNEL");
+
+  socket_kernel = connection_create_client(ip_kernel, puerto_kernel);
   logger =
       log_create("entradasalida.log", "ENTRADA/SALIDA", 1, LOG_LEVEL_DEBUG);
 
