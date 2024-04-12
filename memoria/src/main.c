@@ -34,7 +34,6 @@ uint8_t path_exists(char *path) {
 
 void response_init_process(packet_t *request, int client_socket) {
   char *path = packet_read_string(request, NULL);
-  packet_destroy(request);
 
   uint8_t exists = path_exists(path);
   uint8_t status_code = exists ? OK : NOT_FOUND;
@@ -46,7 +45,6 @@ void response_init_process(packet_t *request, int client_socket) {
 void response_fetch_instruction(packet_t *request, int client_socket) {
   uint32_t program_counter = packet_read_uint32(request);
   char *instruction_path = packet_read_string(request, NULL);
-  packet_destroy(request);
 
   instruction_t instruction =
       fetch_instruction(program_counter, instruction_path);
@@ -81,6 +79,7 @@ void *atender_cliente(void *args) {
     break;
   }
 
+  packet_destroy(req);
   connection_close(client_socket);
   free(args);
 }

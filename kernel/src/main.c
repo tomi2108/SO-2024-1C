@@ -36,6 +36,7 @@ void print_process_queue(t_queue *queue) {
     aux_pid = aux_process->pid;
   }
 }
+
 status_code request_init_process(char *path) {
   char *puerto_memoria = config_get_string_value(config, "PUERTO_MEMORIA");
   char *ip_memoria = config_get_string_value(config, "IP_MEMORIA");
@@ -61,8 +62,6 @@ void response_register_io(packet_t *request, int client_socket) {
   log_info(logger, "Se conecto una interfaz de tipo %s y nombre %s",
            tipo_interfaz, nombre);
 
-  packet_destroy(request);
-
   // guardar el socket de la I/O para responderle cuando sea necesario
 }
 
@@ -78,6 +77,7 @@ void *atender_cliente(void *args) {
     break;
   }
 
+  packet_destroy(request);
   connection_close(client_socket);
   free(args);
   return args;
