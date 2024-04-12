@@ -12,7 +12,7 @@ typedef enum {
 } process_status;
 
 typedef struct {
-  int pid;
+  uint32_t pid;
   char *path;
   process_status status;
 } process_t;
@@ -33,5 +33,20 @@ packet_t *process_pack(process_t process);
  * @brief  Unpacks a process from a packet packed with process_pack(1)
  */
 process_t process_unpack(packet_t *packet);
+
+/**
+ * @fn    process_print
+ * @param process Process to print
+ * @brief Prints a process to sdout
+ */
+void process_print(process_t process);
+
+/**
+ * @fn     process_status_to_string
+ * @param  status Status to transform
+ * @return String representation of the process status
+ * @brief  Transforms a process status to string
+ */
+char *process_status_to_string(process_status status);
 
 #endif

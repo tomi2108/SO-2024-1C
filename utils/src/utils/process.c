@@ -20,3 +20,25 @@ process_t process_unpack(packet_t *packet) {
 
   return process;
 }
+
+void process_print(process_t process) {
+  printf("Pid:%u Status:%s Path de instrucciones:%s\n", process.pid,
+         process_status_to_string(process.status), process.path);
+}
+
+char *process_status_to_string(process_status status) {
+  switch (status) {
+  case NEW:
+    return "NEW";
+  case READY:
+    return "READY";
+  case BLOCKED:
+    return "BLOCKED";
+  case FINISHED:
+    return "FINISHED";
+  case EXEC:
+    return "EXEC";
+  default:
+    return "UNKNOWN";
+  }
+}

@@ -16,6 +16,26 @@ t_queue *new_queue;
 t_queue *ready_queue;
 int next_pid = 1;
 
+void print_process_queue(t_queue *queue) {
+  if (queue_is_empty(queue))
+    return;
+
+  process_t *head = queue_pop(queue);
+  uint32_t head_pid = head->pid;
+  process_print(*head);
+  queue_push(queue, head);
+
+  process_t *aux_process = queue_peek(queue);
+  uint32_t aux_pid = aux_process->pid;
+
+  while (aux_pid != head_pid) {
+    aux_process = queue_pop(queue);
+    process_print(*aux_process);
+    queue_push(queue, aux_process);
+    aux_process = queue_peek(queue);
+    aux_pid = aux_process->pid;
+  }
+}
 status_code request_init_process(char *path) {
   char *puerto_memoria = config_get_string_value(config, "PUERTO_MEMORIA");
   char *ip_memoria = config_get_string_value(config, "IP_MEMORIA");
@@ -60,6 +80,7 @@ void *atender_cliente(void *args) {
 
   connection_close(client_socket);
   free(args);
+  return args;
 }
 
 void exec_script(void);
@@ -68,7 +89,9 @@ void init_process(void) {
   int grado_multiprogramacion =
       config_get_int_value(config, "GRADO_MULTIPROGRAMACION");
   printf("Ingresar path al archivo de instrucciones\n");
-  char *path;
+  char *path = "";
+
+  // sanitizar input...
   scanf("%s", path);
   status_code res_status = request_init_process(path);
   if (res_status == OK) {
@@ -99,7 +122,11 @@ void start_planner(void);
 
 void change_multiprogramming(void);
 
-void list_processes(void);
+void list_processes(void){
+  print_process_queue(new_queue);
+  print_process_queue(ready_queue);
+  // imprimir el resto de procesos
+};
 
 void request_exec_process() {
   char *puerto_cpu_dispatch =
