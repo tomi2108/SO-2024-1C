@@ -15,7 +15,7 @@ int connection_create_client(char *server_ip, char *server_port) {
 
   int err_get_addr = getaddrinfo(server_ip, server_port, &hints, &server_info);
   if (err_get_addr != 0)
-    return err_get_addr;
+    return -1;
 
   int fd_socket = socket(server_info->ai_family, server_info->ai_socktype,
                          server_info->ai_protocol);
@@ -48,7 +48,7 @@ int connection_create_server(char *port) {
 
   int err_get_addr = getaddrinfo(NULL, port, &hints, &server_info);
   if (err_get_addr != 0)
-    return err_get_addr;
+    return -1;
 
   int fd_socket = socket(server_info->ai_family, server_info->ai_socktype,
                          server_info->ai_protocol);

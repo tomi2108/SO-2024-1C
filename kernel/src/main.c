@@ -199,15 +199,29 @@ int main(int argc, char *argv[]) {
   char *ip_memoria = config_get_string_value(config, "IP_MEMORIA");
   char *puerto_memoria = config_get_string_value(config, "PUERTO_MEMORIA");
   socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
+  if (socket_memoria == -1) {
+    log_error(logger, "Imposible crear la conexion a la memoria");
+    return 3;
+  }
 
   char *ip_cpu = config_get_string_value(config, "IP_CPU");
   char *puerto_cpu_dispatch =
       config_get_string_value(config, "PUERTO_CPU_DISPATCH");
   socket_cpu_dispatch = connection_create_client(ip_cpu, puerto_cpu_dispatch);
+  if (socket_cpu_dispatch == -1) {
+    log_error(logger,
+              "Imposible crear la conexion al servidor dispatch del cpu");
+    return 4;
+  }
 
   char *puerto_cpu_interrupt =
       config_get_string_value(config, "PUERTO_CPU_INTERRUPT");
-  socket_cpu_dispatch = connection_create_client(ip_cpu, puerto_cpu_interrupt);
+  socket_cpu_interrupt = connection_create_client(ip_cpu, puerto_cpu_interrupt);
+  if (socket_cpu_interrupt == -1) {
+    log_error(logger,
+              "Imposible crear la conexion al servidor dispatch del cpu");
+    return 5;
+  }
 
   char *algoritmo_planificacion =
       config_get_string_value(config, "ALGORITMO_PLANIFICACION");
@@ -222,7 +236,10 @@ int main(int argc, char *argv[]) {
 
   char *puerto_escucha = config_get_string_value(config, "PUERTO_ESCUCHA");
   int server_socket = connection_create_server(puerto_escucha);
-
+  if (server_socket == -1) {
+    log_error(logger, "Imposible levantar servidor");
+    return 6;
+  }
   log_info(logger, "Servidor levantado en el puerto %s", puerto_escucha);
 
   pthread_t *console_thread;

@@ -12,7 +12,7 @@
  * @fn     connection_create_client
  * @param  server_ip   Ip addres of the server to connect to
  * @param  server_port Port where server is listening
- * @return Client socket file descriptor, -1 (and sets errno) if connection error happened, or one of the error codes listed in gai_strerror(3)
+ * @return Client socket file descriptor, -1 (and sets errno) if connection error happened
  * @brief  Opens a socket and connects to the server, the connection should be
  * closed with connection_close(1)
  */
@@ -21,7 +21,7 @@ int connection_create_client(char *server_ip, char *server_port);
 /**
  * @fn      connection_create_server
  * @param   server_port Port where server will be listening
- * @return  Server listener socket file descriptor, -1 (and sets errno) if connection error happened, or one of the error codes listen in gai_strerror(3)
+ * @return  Server listener socket file descriptor, -1 (and sets errno) if connection error happened
  * @brief   Creates a server connection for clients to connect with
  * connection_create_client
  */
