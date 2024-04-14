@@ -1,12 +1,29 @@
 #include "process.h"
 #include "packet.h"
 
+process_t *process_create(uint32_t pid, char *path, uint32_t quantum) {
+  process_t *process = malloc(sizeof(process_t));
+  process->program_counter = 0;
+  process->pid = pid;
+  process->path = path;
+  process->status = NEW;
+  process->quantum = quantum;
+  return process;
+}
+
+void process_destroy(process_t *process) {
+  free(process->path);
+  free(process);
+}
+
 packet_t *process_pack(process_t process) {
   packet_t *packet = packet_create(PROCESS);
 
   packet_add_uint32(packet, process.pid);
   packet_add(packet, &process.status, sizeof(process_status));
   packet_add_string(packet, process.path);
+  packet_add_uint32(packet, process.program_counter);
+  packet_add_uint32(packet, process.quantum);
 
   return packet;
 }
@@ -17,7 +34,8 @@ process_t process_unpack(packet_t *packet) {
   process.pid = packet_read_uint32(packet);
   packet_read(packet, &process.status, sizeof(process_status));
   process.path = packet_read_string(packet);
-
+  process.program_counter = packet_read_uint32(packet);
+  process.quantum = packet_read_uint32(packet);
   return process;
 }
 

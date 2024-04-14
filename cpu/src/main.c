@@ -17,17 +17,46 @@ char *puerto_memoria;
 int cantidad_entradas_tlb;
 char *algoritmo_tlb;
 
+uint32_t pc = 0;
+
 void response_exec_process(packet_t *req, int client_socket) {
   process_t process = process_unpack(req);
   // ejecutar ciclo de instrucciones con process->path
 }
 
-void *server_dispatch(void *args) {
+char *request_fetch_instruction(process_t process) {
+  int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
+  if (socket_memoria == -1) {
+    log_error(logger, "Imposible conectarse con la memoria");
+    exit(5);
+  }
+  packet_t *req = packet_create(FETCH_INSTRUCTION);
+  packet_add_uint32(req, process.program_counter);
+  packet_add_string(req, process.path);
+  packet_send(req, socket_memoria);
+  packet_destroy(req);
 
+  packet_t *res = packet_recieve(socket_memoria);
+  char *instruction;
+  if (res->type == INSTRUCTION) {
+    // strdup(packet_read_string(res)) ??
+    instruction = packet_read_string(res);
+  } else
+    instruction = NULL;
+  packet_destroy(res);
+  connection_close(socket_memoria);
+  return instruction;
+}
+
+void decode_instruction(char *instruction) {}
+
+void exec_instruction() {}
+
+void *server_dispatch(void *args) {
   int server_socket = connection_create_server(puerto_dispatch);
   if (server_socket == -1) {
     log_error(logger, "Imposible crear el servidor dispatch");
-    exit(4);
+    exit(3);
   }
 
   log_info(logger, "Servidor dispatch levantado en el puerto %s",
@@ -54,12 +83,11 @@ void *server_dispatch(void *args) {
 }
 
 void *server_interrupt(void *args) {
-
   int server_socket = connection_create_server(puerto_interrupt);
 
   if (server_socket == -1) {
     log_error(logger, "Imposible crear el servidor interrupt");
-    exit(5);
+    exit(4);
   }
 
   log_info(logger, "Servidor interrupt levantado en el puerto %s",
@@ -89,12 +117,6 @@ int main(int argc, char *argv[]) {
 
   ip_memoria = config_get_string_value(config, "IP_MEMORIA");
   puerto_memoria = config_get_string_value(config, "PUERTO_MEMORIA");
-
-  int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
-  if (socket_memoria == -1)
-    log_error(logger, "Imposible crear la conexion a la memoria");
-  // por ahora
-  connection_close(socket_memoria);
 
   cantidad_entradas_tlb = config_get_int_value(config, "CANTIDAD_ENTRADAS_TLB");
   algoritmo_tlb = config_get_string_value(config, "ALGORITMO_TLB");

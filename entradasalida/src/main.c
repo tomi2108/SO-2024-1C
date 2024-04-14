@@ -98,9 +98,8 @@ void interfaz_stdin(uint32_t direccion_fisica) {
 
 void interfaz_dialfs(void) {}
 
-void request_register_io() {
-  int socket_kernel = connection_create_client(ip_kernel, puerto_kernel);
-  if (socket_kernel == -1) {
+void request_register_io(int client_socket) {
+  if (client_socket == -1) {
     log_error(logger, "Imposible crear la conexion al kernel");
     exit(5);
   }
@@ -109,23 +108,8 @@ void request_register_io() {
 
   packet_add_string(request, name);
   packet_add_string(request, io_type);
-  packet_send(request, socket_kernel);
+  packet_send(request, client_socket);
   packet_destroy(request);
-
-  packet_t *res = packet_recieve(socket_kernel);
-  connection_close(socket_kernel);
-
-  if (strcmp(io_type, "generica") == 0) {
-    uint32_t tiempo_espera = packet_read_uint32(res);
-    interfaz_generica(tiempo_espera);
-  } else if (strcmp(io_type, "stdin")) {
-    uint32_t direccion = packet_read_uint32(res);
-    interfaz_stdin(direccion);
-  } else if (strcmp(io_type, "stdout")) {
-    uint32_t direccion = packet_read_uint32(res);
-    interfaz_stdout(direccion);
-  } else if (strcmp(io_type, "dialfs"))
-    interfaz_dialfs();
 }
 
 uint8_t is_io_type_supported() {
@@ -172,8 +156,26 @@ int main(int argc, char *argv[]) {
   block_size = config_get_int_value(config, "BLOCK_SIZE");
   block_count = config_get_int_value(config, "BLOCK_COUNT");
 
-  request_register_io();
+  int socket_kernel = connection_create_client(ip_kernel, puerto_kernel);
+  request_register_io(socket_kernel);
 
+  while (1) {
+    packet_t *res = packet_recieve(socket_kernel);
+
+    if (strcmp(io_type, "generica") == 0) {
+      uint32_t tiempo_espera = packet_read_uint32(res);
+      interfaz_generica(tiempo_espera);
+    } else if (strcmp(io_type, "stdin")) {
+      uint32_t direccion = packet_read_uint32(res);
+      interfaz_stdin(direccion);
+    } else if (strcmp(io_type, "stdout")) {
+      uint32_t direccion = packet_read_uint32(res);
+      interfaz_stdout(direccion);
+    } else if (strcmp(io_type, "dialfs"))
+      interfaz_dialfs();
+  }
+
+  connection_close(socket_kernel);
   log_destroy(logger);
   config_destroy(config);
   return 0;

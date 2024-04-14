@@ -15,7 +15,26 @@ typedef struct {
   uint32_t pid;
   char *path;
   process_status status;
+  uint32_t quantum;
+  uint32_t program_counter;
 } process_t;
+
+/**
+ * @fn     process_create
+ * @param  pid Process id
+ * @param  path Instruction path
+ * @param  quantum Initial quantum
+ * @return Created process
+ * @brief  Creates a process with the given parameters
+ */
+process_t *process_create(uint32_t pid, char *path, uint32_t quantum);
+
+/**
+ * @fn    process_destroy
+ * @param process Process to destroy
+ * @brief Destroys the process created with process_create(3)
+ */
+void process_destroy(process_t *process);
 
 /**
  * @fn     process_pack

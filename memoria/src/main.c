@@ -9,7 +9,6 @@
 #include <sys/unistd.h>
 #include <unistd.h>
 #include <utils/connection.h>
-#include <utils/instruction.h>
 #include <utils/packet.h>
 #include <utils/status.h>
 
@@ -23,11 +22,8 @@ int tam_pagina;
 int retardo_respuesta;
 char *path_instrucciones;
 
-instruction_t fetch_instruction(uint32_t program_counter,
-                                char *instruction_path) {
-  instruction_t ins;
-  ins.params = list_create();
-  return ins;
+char *fetch_instruction(uint32_t program_counter, char *instruction_path) {
+  return "";
 }
 
 uint8_t path_exists(char *path) {
@@ -52,11 +48,10 @@ void response_fetch_instruction(packet_t *request, int client_socket) {
   uint32_t program_counter = packet_read_uint32(request);
   char *instruction_path = packet_read_string(request);
 
-  instruction_t instruction =
-      fetch_instruction(program_counter, instruction_path);
+  char *instruction = fetch_instruction(program_counter, instruction_path);
 
-  packet_t *res = instruction_pack(instruction);
-  list_destroy(instruction.params);
+  packet_t *res = packet_create(INSTRUCTION);
+  packet_add_string(res, instruction);
   packet_send(res, client_socket);
   packet_destroy(res);
 }

@@ -13,9 +13,6 @@
 
 t_log *logger;
 t_config *config;
-t_queue *new_queue;
-t_queue *ready_queue;
-int next_pid = 1;
 
 char *puerto_escucha;
 
@@ -31,6 +28,14 @@ int quantum;
 char **recursos;
 char **instancias_recursos;
 int grado_multiprogramacion;
+
+int next_pid = 1;
+t_queue *new_queue;
+t_queue *ready_queue;
+process_t *exec;
+t_list *finished;
+// seran multiples colas
+t_queue *blocked;
 
 void print_process_queue(t_queue *queue) {
 
@@ -121,14 +126,11 @@ void init_process(void) {
   }
   status_code res_status = request_init_process(path);
   if (res_status == OK) {
-    int pid = next_pid;
+    uint32_t pid = next_pid;
     next_pid++;
-    process_t new_process;
-    new_process.path = strdup(path);
-    new_process.pid = pid;
-    new_process.status = NEW;
+    process_t *new_process = process_create(pid, strdup(path), quantum);
     if (queue_size(ready_queue) < grado_multiprogramacion) {
-      new_process.status = READY;
+      new_process->status = READY;
       queue_push(ready_queue, &new_process);
     } else
       queue_push(new_queue, &new_process);
@@ -149,23 +151,33 @@ void list_processes(void) {
   // imprimir el resto de procesos
 };
 
-void request_exec_process() {
+void request_exec_process(process_t process) {
 
   int socket_cpu_dispatch =
       connection_create_client(ip_cpu, puerto_cpu_dispatch);
   if (socket_cpu_dispatch == -1) {
-
     log_error(logger,
               "Imposible crear la conexion al servidor dispatch del cpu");
     exit(5);
   }
 
-  process_t *process = queue_pop(ready_queue);
-  packet_t *request = process_pack(*process);
+  packet_t *request = process_pack(process);
   packet_send(request, socket_cpu_dispatch);
+
   connection_close(socket_cpu_dispatch);
-  free(process->path);
+  free(process.path);
   packet_destroy(request);
+}
+
+void planificacion_fifo() {
+  while (1) {
+    // semaforos...
+    if (exec == NULL && !queue_is_empty(ready_queue)) {
+      process_t *process_to_exec = queue_pop(ready_queue);
+      request_exec_process(*process_to_exec);
+      exec = process_to_exec;
+    }
+  }
 }
 
 void *consola_interactiva(void *args) {
@@ -257,6 +269,7 @@ int main(int argc, char *argv[]) {
 
   new_queue = queue_create();
   ready_queue = queue_create();
+  exec = NULL;
 
   int server_socket = connection_create_server(puerto_escucha);
   if (server_socket == -1) {
