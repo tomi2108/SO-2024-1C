@@ -1,6 +1,7 @@
 #include <commons/collections/queue.h>
 #include <commons/config.h>
 #include <commons/log.h>
+#include <ctype.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -16,9 +17,20 @@ t_queue *new_queue;
 t_queue *ready_queue;
 int next_pid = 1;
 
-int socket_memoria;
-int socket_cpu_dispatch;
-int socket_cpu_interrupt;
+char *puerto_escucha;
+
+char *ip_memoria;
+char *puerto_memoria;
+
+char *ip_cpu;
+char *puerto_cpu_dispatch;
+char *puerto_cpu_interrupt;
+
+char *algoritmo_planificacion;
+int quantum;
+char **recursos;
+char **instancias_recursos;
+int grado_multiprogramacion;
 
 void print_process_queue(t_queue *queue) {
 
@@ -44,21 +56,27 @@ void print_process_queue(t_queue *queue) {
 
 status_code request_init_process(char *path) {
 
+  int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
+  if (socket_memoria == -1) {
+    log_error(logger, "Imposible crear la conexion a la memoria");
+    exit(3);
+  }
   packet_t *packet = packet_create(INIT_PROCESS);
   packet_add_string(packet, path);
   packet_send(packet, socket_memoria);
+  log_info(logger, "Se envio el request de inicio a la memoria");
   packet_destroy(packet);
 
   packet_t *res = packet_recieve(socket_memoria);
   uint8_t status_code = status_read_packet(res);
   packet_destroy(res);
-
+  connection_close(socket_memoria);
   return status_code;
 }
 
-void response_register_io(packet_t *request, int client_socket) {
-  char *nombre = packet_read_string(request, NULL);
-  char *tipo_interfaz = packet_read_string(request, NULL);
+void response_register_io(packet_t *request, int io_socket) {
+  char *nombre = packet_read_string(request);
+  char *tipo_interfaz = packet_read_string(request);
 
   log_info(logger, "Se conecto una interfaz de tipo %s y nombre %s",
            tipo_interfaz, nombre);
@@ -68,37 +86,31 @@ void response_register_io(packet_t *request, int client_socket) {
 
 void *atender_cliente(void *args) {
   int client_socket = *(int *)args;
-  while (1) {
-    packet_t *request = packet_recieve(client_socket);
-    if (request == NULL)
-      break;
-    switch (request->type) {
-    case REGISTER_IO:
-      response_register_io(request, client_socket);
-      break;
-    default:
-      break;
-    }
-    packet_destroy(request);
+  packet_t *request = packet_recieve(client_socket);
+
+  switch (request->type) {
+  case REGISTER_IO:
+    response_register_io(request, client_socket);
+    break;
+  default:
+    break;
   }
+  packet_destroy(request);
   connection_close(client_socket);
   free(args);
-  return args;
+  return 0;
 }
 
-void exec_script(void);
+void exec_script(void) {}
 
 void init_process(void) {
-  int grado_multiprogramacion =
-      config_get_int_value(config, "GRADO_MULTIPROGRAMACION");
   printf("Ingresar path al archivo de instrucciones\n");
-  char *path = "";
-
+  // a chequear
+  char path[20];
   // sanitizar input...
-  scanf("%s", path);
+  scanf("%19[^\n]", path);
   status_code res_status = request_init_process(path);
   if (res_status == OK) {
-
     int pid = next_pid;
     next_pid++;
     process_t new_process;
@@ -110,20 +122,16 @@ void init_process(void) {
       queue_push(ready_queue, &new_process);
     } else
       queue_push(new_queue, &new_process);
-
     log_info(logger, "Se crea el proceso %d en NEW", pid);
   } else if (res_status == NOT_FOUND) {
     log_error(logger, "El archivo %s no existe", path);
   }
 };
 
-void end_process(void);
-
-void stop_planner(void);
-
-void start_planner(void);
-
-void change_multiprogramming(void);
+void end_process(void) {}
+void stop_planner(void) {}
+void start_planner(void) {}
+void change_multiprogramming(void) {}
 
 void list_processes(void) {
   print_process_queue(new_queue);
@@ -133,53 +141,64 @@ void list_processes(void) {
 
 void request_exec_process() {
 
+  int socket_cpu_dispatch =
+      connection_create_client(ip_cpu, puerto_cpu_dispatch);
+  if (socket_cpu_dispatch == -1)
+    log_error(logger,
+              "Imposible crear la conexion al servidor dispatch del cpu");
+
   process_t *process = queue_pop(ready_queue);
   packet_t *request = process_pack(*process);
   packet_send(request, socket_cpu_dispatch);
+  connection_close(socket_cpu_dispatch);
   free(process->path);
   packet_destroy(request);
 }
 
 void *consola_interactiva(void *args) {
-  while (1) {
-    printf("+------------------------------------------+\n");
-    printf("| %-40s |\n", "1: Ejecutar script");
-    printf("| %-40s |\n", "2: Iniciar proceso");
-    printf("| %-40s |\n", "3: Finalizar proceso");
-    printf("| %-40s |\n", "4: Detener planificacion");
-    printf("| %-40s |\n", "5: Iniciar planificacion");
-    printf("| %-40s |\n", "6: Cambiar grado de multiprogramacion");
-    printf("| %-40s |\n", "7: Listar estados de procesos");
-    printf("| %-40s |\n", "Otro: Terminar proceso");
-    printf("+------------------------------------------+\n");
-    int input = getchar();
+  char input = '0';
+  do {
+    if (isdigit(input)) {
+      printf("+------------------------------------------+\n");
+      printf("| %-40s |\n", "1: Ejecutar script");
+      printf("| %-40s |\n", "2: Iniciar proceso");
+      printf("| %-40s |\n", "3: Finalizar proceso");
+      printf("| %-40s |\n", "4: Detener planificacion");
+      printf("| %-40s |\n", "5: Iniciar planificacion");
+      printf("| %-40s |\n", "6: Cambiar grado de multiprogramacion");
+      printf("| %-40s |\n", "7: Listar estados de procesos");
+      printf("| %-40s |\n", "8: Terminar proceso");
+      printf("+------------------------------------------+\n");
+    }
+    input = getchar();
     switch (input) {
-    case 49:
+    case '1':
       exec_script();
       break;
-    case 50:
+    case '2':
       init_process();
       break;
-    case 51:
+    case '3':
       end_process();
       break;
-    case 52:
+    case '4':
       stop_planner();
       break;
-    case 53:
+    case '5':
       start_planner();
       break;
-    case 54:
+    case '6':
       change_multiprogramming();
       break;
-    case 55:
+    case '7':
       list_processes();
       break;
     default:
-      return args;
+      break;
     }
-  }
-  return args;
+
+  } while (input != '8');
+  return 0;
 }
 
 int main(int argc, char *argv[]) {
@@ -196,67 +215,58 @@ int main(int argc, char *argv[]) {
     return 2;
   }
 
-  char *ip_memoria = config_get_string_value(config, "IP_MEMORIA");
-  char *puerto_memoria = config_get_string_value(config, "PUERTO_MEMORIA");
-  socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
-  if (socket_memoria == -1) {
-    log_error(logger, "Imposible crear la conexion a la memoria");
-    return 3;
-  }
+  puerto_escucha = config_get_string_value(config, "PUERTO_ESCUCHA");
 
-  char *ip_cpu = config_get_string_value(config, "IP_CPU");
-  char *puerto_cpu_dispatch =
-      config_get_string_value(config, "PUERTO_CPU_DISPATCH");
-  socket_cpu_dispatch = connection_create_client(ip_cpu, puerto_cpu_dispatch);
-  if (socket_cpu_dispatch == -1) {
-    log_error(logger,
-              "Imposible crear la conexion al servidor dispatch del cpu");
-    return 4;
-  }
+  ip_memoria = config_get_string_value(config, "IP_MEMORIA");
+  puerto_memoria = config_get_string_value(config, "PUERTO_MEMORIA");
 
-  char *puerto_cpu_interrupt =
+  ip_cpu = config_get_string_value(config, "IP_CPU");
+  puerto_cpu_dispatch = config_get_string_value(config, "PUERTO_CPU_DISPATCH");
+  puerto_cpu_interrupt =
       config_get_string_value(config, "PUERTO_CPU_INTERRUPT");
-  socket_cpu_interrupt = connection_create_client(ip_cpu, puerto_cpu_interrupt);
+
+  algoritmo_planificacion =
+      config_get_string_value(config, "ALGORITMO_PLANIFICACION");
+  quantum = config_get_int_value(config, "QUANTUM");
+  instancias_recursos = config_get_array_value(config, "INSTANCIAS_RECURSOS");
+  recursos = config_get_array_value(config, "RECURSOS");
+  grado_multiprogramacion =
+      config_get_int_value(config, "GRADO_MULTIPROGRAMACION");
+
+  int socket_cpu_interrupt =
+      connection_create_client(ip_cpu, puerto_cpu_interrupt);
   if (socket_cpu_interrupt == -1) {
     log_error(logger,
-              "Imposible crear la conexion al servidor dispatch del cpu");
-    return 5;
+              "Imposible crear la conexion al servidor interrupt del cpu");
   }
-
-  char *algoritmo_planificacion =
-      config_get_string_value(config, "ALGORITMO_PLANIFICACION");
-
-  int quantum = config_get_int_value(config, "QUANTUM");
-  char **instancias_recursos =
-      config_get_array_value(config, "INSTANCIAS_RECURSOS");
-  char **recursos = config_get_array_value(config, "RECURSOS");
+  // por ahora
+  connection_close(socket_cpu_interrupt);
 
   new_queue = queue_create();
   ready_queue = queue_create();
 
-  char *puerto_escucha = config_get_string_value(config, "PUERTO_ESCUCHA");
   int server_socket = connection_create_server(puerto_escucha);
   if (server_socket == -1) {
     log_error(logger, "Imposible levantar servidor");
-    return 6;
+    return 3;
   }
   log_info(logger, "Servidor levantado en el puerto %s", puerto_escucha);
 
-  pthread_t *console_thread;
-  pthread_create(console_thread, NULL, &consola_interactiva, NULL);
+  pthread_t console_thread;
+  pthread_create(&console_thread, NULL, &consola_interactiva, NULL);
 
   while (1) {
     int client_socket = connection_accept_client(server_socket);
-    pthread_t *thread;
+    pthread_t thread;
     int *arg = malloc(sizeof(int));
     *arg = client_socket;
-    pthread_create(thread, NULL, &atender_cliente, arg);
-    pthread_detach(*thread);
+    pthread_create(&thread, NULL, &atender_cliente, arg);
+    pthread_detach(thread);
   }
 
   queue_destroy(new_queue);
   queue_destroy(ready_queue);
-  pthread_join(*console_thread, NULL);
+  pthread_join(console_thread, NULL);
   connection_close(server_socket);
   log_destroy(logger);
   config_destroy(config);

@@ -1,7 +1,7 @@
 #ifndef UTILS_PROCESS_H_
 #define UTILS_PROCESS_H_
 
-#include <utils/packet.h>
+#include "packet.h"
 
 typedef enum {
   NEW,

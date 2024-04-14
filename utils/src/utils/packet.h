@@ -104,11 +104,10 @@ uint8_t packet_read_uint8(packet_t *packet);
 /*
  * @fn    packet_read_string
  * @param packet Packet to read from
- * @param length Pointer to write the length of the read string
  * @return Read string
  * @brief Reads from packets's buffer
  */
-char *packet_read_string(packet_t *packet, uint32_t *length);
+char *packet_read_string(packet_t *packet);
 
 /**
  * @fn     packet_send

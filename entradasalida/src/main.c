@@ -11,15 +11,21 @@
 t_log *logger;
 t_config *config;
 
-int socket_kernel;
-int socket_memoria;
-
 char *name;
 char *io_type;
+int tiempo_unidad_trabajo_ms;
+
+char *ip_kernel;
+char *puerto_kernel;
+
+char *ip_memoria;
+char *puerto_memoria;
+
+char *path_base_dialfs;
+int block_size;
+int block_count;
 
 void interfaz_generica(uint32_t tiempo_espera) {
-  int tiempo_unidad_trabajo_ms =
-      config_get_int_value(config, "TIEMPO_UNIDAD_TRABAJO");
   log_debug(logger, "Esperando %d segundos",
             tiempo_espera * tiempo_unidad_trabajo_ms / 1000);
   sleep(tiempo_unidad_trabajo_ms * tiempo_espera);
@@ -31,8 +37,12 @@ void interfaz_generica(uint32_t tiempo_espera) {
 // memoria responde con uint32 (el contenido de la direccion) verificar cuando
 // se realize el modulo memoria
 void interfaz_stdout(uint32_t direccion_fisica) {
-  int tiempo_unidad_trabajo_ms =
-      config_get_int_value(config, "TIEMPO_UNIDAD_TRABAJO");
+
+  int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
+  if (socket_memoria == -1) {
+    log_error(logger, "Imposible conectarse con la memoria");
+    exit(4);
+  }
 
   packet_t *req = packet_create(READ_DIR);
   packet_add_uint32(req, direccion_fisica);
@@ -40,6 +50,7 @@ void interfaz_stdout(uint32_t direccion_fisica) {
   packet_destroy(req);
 
   packet_t *res = packet_recieve(socket_memoria);
+  connection_close(socket_memoria);
   uint32_t memory_content = packet_read_uint32(res);
   packet_destroy(res);
 
@@ -54,8 +65,15 @@ void interfaz_stdout(uint32_t direccion_fisica) {
 // realize el modulo memoria tambien se asume que la memoria puede procesar la
 // escritura de un char*
 void interfaz_stdin(uint32_t direccion_fisica) {
-  char *input; // TODO: sanitizar el input de alguna forma... restringir
-               // longitud quizas ?
+
+  int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
+  if (socket_memoria == -1) {
+    log_error(logger, "Imposible conectarse con la memoria");
+    exit(4);
+  }
+
+  char *input = ""; // TODO: sanitizar el input de alguna forma... restringir
+                    // longitud quizas ?
 
   scanf("%s", input);
   packet_t *req = packet_create(WRITE_DIR);
@@ -64,6 +82,7 @@ void interfaz_stdin(uint32_t direccion_fisica) {
   packet_destroy(req);
 
   packet_t *res = packet_recieve(socket_memoria);
+  connection_close(socket_memoria);
   uint8_t status = status_read_packet(res);
   packet_destroy(res);
 
@@ -77,13 +96,14 @@ void interfaz_stdin(uint32_t direccion_fisica) {
              direccion_fisica);
 }
 
-void interfaz_dialfs() {
-  char *path_base_dialfs = config_get_string_value(config, "PATH_BASE_DIALFS");
-  int block_size = config_get_int_value(config, "BLOCK_SIZE");
-  int block_count = config_get_int_value(config, "BLOCK_COUNT");
-}
+void interfaz_dialfs(void) {}
 
 void request_register_io() {
+  int socket_kernel = connection_create_client(ip_kernel, puerto_kernel);
+  if (socket_kernel == -1) {
+    log_error(logger, "Imposible crear la conexion al kernel");
+    exit(5);
+  }
 
   packet_t *request = packet_create(REGISTER_IO);
 
@@ -92,30 +112,20 @@ void request_register_io() {
   packet_send(request, socket_kernel);
   packet_destroy(request);
 
-  if (strcmp(io_type, "generica") != 0) {
-    char *ip_memoria = config_get_string_value(config, "IP_MEMORIA");
-    char *puerto_memoria = config_get_string_value(config, "PUERTO_MEMORIA");
-    socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
-  }
-
-  while (1) {
-    packet_t *res = packet_recieve(socket_kernel);
-    if (res == NULL)
-      break;
-    if (strcmp(io_type, "generica") == 0) {
-      uint32_t tiempo_espera = packet_read_uint32(res);
-      interfaz_generica(tiempo_espera);
-    } else if (strcmp(io_type, "stdin")) {
-      uint32_t direccion = packet_read_uint32(res);
-      interfaz_stdin(direccion);
-    } else if (strcmp(io_type, "stdout")) {
-      uint32_t direccion = packet_read_uint32(res);
-      interfaz_stdout(direccion);
-    } else if (strcmp(io_type, "dialfs"))
-      interfaz_dialfs();
-  }
-  connection_close(socket_memoria);
+  packet_t *res = packet_recieve(socket_kernel);
   connection_close(socket_kernel);
+
+  if (strcmp(io_type, "generica") == 0) {
+    uint32_t tiempo_espera = packet_read_uint32(res);
+    interfaz_generica(tiempo_espera);
+  } else if (strcmp(io_type, "stdin")) {
+    uint32_t direccion = packet_read_uint32(res);
+    interfaz_stdin(direccion);
+  } else if (strcmp(io_type, "stdout")) {
+    uint32_t direccion = packet_read_uint32(res);
+    interfaz_stdout(direccion);
+  } else if (strcmp(io_type, "dialfs"))
+    interfaz_dialfs();
 }
 
 uint8_t is_io_type_supported() {
@@ -149,14 +159,18 @@ int main(int argc, char *argv[]) {
   // sanitizar input...?
   name = strdup(argv[2]);
 
-  char *ip_kernel = config_get_string_value(config, "IP_KERNEL");
-  char *puerto_kernel = config_get_string_value(config, "PUERTO_KERNEL");
+  ip_kernel = config_get_string_value(config, "IP_KERNEL");
+  puerto_kernel = config_get_string_value(config, "PUERTO_KERNEL");
 
-  socket_kernel = connection_create_client(ip_kernel, puerto_kernel);
-  if(socket_kernel==-1){
-    log_error(logger,"Imposible crear la conexion al kernel");
-    return 4;
-  }
+  ip_memoria = config_get_string_value(config, "IP_MEMORIA");
+  puerto_memoria = config_get_string_value(config, "PUERTO_MEMORIA");
+
+  tiempo_unidad_trabajo_ms =
+      config_get_int_value(config, "TIEMPO_UNIDAD_TRABAJO");
+
+  path_base_dialfs = config_get_string_value(config, "PATH_BASE_DIALFS");
+  block_size = config_get_int_value(config, "BLOCK_SIZE");
+  block_count = config_get_int_value(config, "BLOCK_COUNT");
 
   request_register_io();
 

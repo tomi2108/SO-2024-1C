@@ -16,7 +16,7 @@ process_t process_unpack(packet_t *packet) {
 
   process.pid = packet_read_uint32(packet);
   packet_read(packet, &process.status, sizeof(process_status));
-  process.path = packet_read_string(packet, NULL);
+  process.path = packet_read_string(packet);
 
   return process;
 }
