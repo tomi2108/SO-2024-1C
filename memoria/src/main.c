@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/unistd.h>
 #include <unistd.h>
 #include <utils/connection.h>
@@ -34,8 +35,8 @@ uint8_t path_exists(char *path) {
   memset(full_path, 0, 1 + strlen(path) + strlen(path_instrucciones));
   strcat(full_path, path_instrucciones);
   strcat(full_path, path);
-  int exists = access(full_path, F_OK) == 0;
-  return exists;
+  int exists = access(full_path, F_OK);
+  return exists == 0;
 }
 
 void response_init_process(packet_t *request, int client_socket) {
@@ -113,8 +114,9 @@ int main(int argc, char *argv[]) {
   int server_socket = connection_create_server(puerto_escucha);
   if (server_socket == -1) {
     log_error(logger, "Imposible levantar servidor");
+    return 3;
   }
-  log_debug(logger, "Servidor levantado en el puerto %s", puerto_escucha);
+  log_info(logger, "Servidor levantado en el puerto %s", puerto_escucha);
 
   while (1) {
     int client_socket = connection_accept_client(server_socket);

@@ -59,12 +59,11 @@ status_code request_init_process(char *path) {
   int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
   if (socket_memoria == -1) {
     log_error(logger, "Imposible crear la conexion a la memoria");
-    exit(3);
+    exit(4);
   }
   packet_t *packet = packet_create(INIT_PROCESS);
   packet_add_string(packet, path);
   packet_send(packet, socket_memoria);
-  log_info(logger, "Se envio el request de inicio a la memoria");
   packet_destroy(packet);
 
   packet_t *res = packet_recieve(socket_memoria);
@@ -81,6 +80,11 @@ void response_register_io(packet_t *request, int io_socket) {
   log_info(logger, "Se conecto una interfaz de tipo %s y nombre %s",
            tipo_interfaz, nombre);
 
+  packet_t *res = packet_create(REGISTER_IO);
+  packet_add_uint32(res, 2);
+  packet_send(res, io_socket);
+  packet_destroy(res);
+  connection_close(io_socket);
   // guardar el socket de la I/O para responderle cuando sea necesario
 }
 
@@ -96,7 +100,6 @@ void *atender_cliente(void *args) {
     break;
   }
   packet_destroy(request);
-  connection_close(client_socket);
   free(args);
   return 0;
 }
@@ -107,8 +110,15 @@ void init_process(void) {
   printf("Ingresar path al archivo de instrucciones\n");
   // a chequear
   char path[20];
+  int c;
+  while ((c = getchar()) != '\n' && c != EOF) {
+  }
+
   // sanitizar input...
-  scanf("%19[^\n]", path);
+  fgets(path, 19, stdin);
+  if (strlen(path) < 21) {
+    path[strlen(path) - 1] = '\0';
+  }
   status_code res_status = request_init_process(path);
   if (res_status == OK) {
     int pid = next_pid;
@@ -143,9 +153,12 @@ void request_exec_process() {
 
   int socket_cpu_dispatch =
       connection_create_client(ip_cpu, puerto_cpu_dispatch);
-  if (socket_cpu_dispatch == -1)
+  if (socket_cpu_dispatch == -1) {
+
     log_error(logger,
               "Imposible crear la conexion al servidor dispatch del cpu");
+    exit(5);
+  }
 
   process_t *process = queue_pop(ready_queue);
   packet_t *request = process_pack(*process);

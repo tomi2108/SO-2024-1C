@@ -26,9 +26,9 @@ int block_size;
 int block_count;
 
 void interfaz_generica(uint32_t tiempo_espera) {
-  log_debug(logger, "Esperando %d segundos",
-            tiempo_espera * tiempo_unidad_trabajo_ms / 1000);
-  sleep(tiempo_unidad_trabajo_ms * tiempo_espera);
+  log_debug(logger, "Esperando %u segundos",
+            (tiempo_espera * tiempo_unidad_trabajo_ms) / 1000);
+  sleep((tiempo_unidad_trabajo_ms * tiempo_espera) / 1000);
 }
 
 // TODO: se asume que la direccion fisica sera uint32_t verificar cuando se
