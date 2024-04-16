@@ -26,8 +26,8 @@ int block_size;
 int block_count;
 
 void interfaz_generica(uint32_t tiempo_espera) {
-  log_debug(logger, "Esperando %u segundos",
-            (tiempo_espera * tiempo_unidad_trabajo_ms) / 1000);
+  log_info(logger, "Esperando %u segundos",
+           (tiempo_espera * tiempo_unidad_trabajo_ms) / 1000);
   sleep((tiempo_unidad_trabajo_ms * tiempo_espera) / 1000);
 }
 
@@ -160,8 +160,8 @@ int main(int argc, char *argv[]) {
   request_register_io(socket_kernel);
 
   while (1) {
+    log_debug(logger, "Esperando instruccion del kernel");
     packet_t *res = packet_recieve(socket_kernel);
-
     if (strcmp(io_type, "generica") == 0) {
       uint32_t tiempo_espera = packet_read_uint32(res);
       interfaz_generica(tiempo_espera);

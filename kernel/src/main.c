@@ -37,10 +37,12 @@ t_list *finished;
 // seran multiples colas
 t_queue *blocked;
 
-void print_process_queue(t_queue *queue) {
+void print_process_queue(t_queue *queue, char *name) {
 
-  if (queue_is_empty(queue))
+  if (queue_is_empty(queue)) {
+    printf("La cola %s esta vacia\n", name);
     return;
+  }
 
   process_t *head = queue_pop(queue);
   uint32_t head_pid = head->pid;
@@ -89,7 +91,6 @@ void response_register_io(packet_t *request, int io_socket) {
   packet_add_uint32(res, 2);
   packet_send(res, io_socket);
   packet_destroy(res);
-  connection_close(io_socket);
   // guardar el socket de la I/O para responderle cuando sea necesario
 }
 
@@ -119,7 +120,6 @@ void init_process(void) {
   while ((c = getchar()) != '\n' && c != EOF) {
   }
 
-  // sanitizar input...
   fgets(path, 19, stdin);
   if (strlen(path) < 21) {
     path[strlen(path) - 1] = '\0';
@@ -129,11 +129,7 @@ void init_process(void) {
     uint32_t pid = next_pid;
     next_pid++;
     process_t *new_process = process_create(pid, strdup(path), quantum);
-    if (queue_size(ready_queue) < grado_multiprogramacion) {
-      new_process->status = READY;
-      queue_push(ready_queue, &new_process);
-    } else
-      queue_push(new_queue, &new_process);
+    queue_push(new_queue, new_process);
     log_info(logger, "Se crea el proceso %d en NEW", pid);
   } else if (res_status == NOT_FOUND) {
     log_error(logger, "El archivo %s no existe", path);
@@ -146,9 +142,9 @@ void start_planner(void) {}
 void change_multiprogramming(void) {}
 
 void list_processes(void) {
-  print_process_queue(new_queue);
-  print_process_queue(ready_queue);
-  // imprimir el resto de procesos
+  print_process_queue(new_queue, "NEW");
+  print_process_queue(ready_queue, "READY");
+  // imprimir el resto de procsos
 };
 
 void request_exec_process(process_t process) {
@@ -165,7 +161,6 @@ void request_exec_process(process_t process) {
   packet_send(request, socket_cpu_dispatch);
 
   connection_close(socket_cpu_dispatch);
-  free(process.path);
   packet_destroy(request);
 }
 
@@ -192,7 +187,7 @@ void *consola_interactiva(void *args) {
       printf("| %-40s |\n", "5: Iniciar planificacion");
       printf("| %-40s |\n", "6: Cambiar grado de multiprogramacion");
       printf("| %-40s |\n", "7: Listar estados de procesos");
-      printf("| %-40s |\n", "8: Terminar proceso");
+      printf("| %-40s |\n", "8: Salir");
       printf("+------------------------------------------+\n");
     }
     input = getchar();
