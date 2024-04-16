@@ -10,6 +10,13 @@ status_code status_read_packet(packet_t *packet) {
 
 packet_t *status_create_packet(status_code status_code) {
   packet_t *packet = packet_create(STATUS);
-  packet_add_uint8(packet, status_code);
+  if (packet == NULL)
+    return NULL;
+
+  int err = packet_add_uint8(packet, status_code);
+  if (err) {
+    packet_destroy(packet);
+    return NULL;
+  }
   return packet;
 }

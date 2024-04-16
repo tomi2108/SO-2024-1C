@@ -17,7 +17,7 @@ typedef struct {
 /**
  * @fn     instruction_pack
  * @param  instruction Instruction to pack
- * @return Modified packet
+ * @return Created packet or NULL if error ocurred
  * @brief  Packs an instruction inside a packet ready to be sent with
  * packet_send(2), the packet must be destroyed with packet_destroy(1)
  */

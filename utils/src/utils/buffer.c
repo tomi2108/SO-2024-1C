@@ -15,13 +15,19 @@ void buffer_destroy(buffer_t *buffer) {
   free(buffer);
 }
 
-void buffer_add(buffer_t *buffer, void *data, size_t size) {
-  if (buffer->stream == NULL)
+int buffer_add(buffer_t *buffer, void *data, size_t size) {
+  if (buffer->stream == NULL) {
     buffer->stream = malloc(size);
-  else
+    if (buffer->stream == NULL)
+      return -1;
+  } else {
     buffer->stream = realloc(buffer->stream, buffer->size + size);
+    if (buffer->stream == NULL)
+      return -1;
+  }
   memcpy(buffer->stream + buffer->size, data, size);
   buffer->size += size;
+  return 0;
 }
 
 void buffer_read(buffer_t *buffer, void *data, size_t size) {
@@ -29,16 +35,16 @@ void buffer_read(buffer_t *buffer, void *data, size_t size) {
   buffer->offset += size;
 }
 
-void buffer_add_uint32(buffer_t *buffer, uint32_t data) {
-  buffer_add(buffer, &data, sizeof(uint32_t));
+int buffer_add_uint32(buffer_t *buffer, uint32_t data) {
+  return buffer_add(buffer, &data, sizeof(uint32_t));
 }
 
-void buffer_add_uint8(buffer_t *buffer, uint8_t data) {
-  buffer_add(buffer, &data, sizeof(uint8_t));
+int buffer_add_uint8(buffer_t *buffer, uint8_t data) {
+  return buffer_add(buffer, &data, sizeof(uint8_t));
 }
 
-void buffer_add_string(buffer_t *buffer, uint32_t length, char *string) {
-  buffer_add(buffer, string, sizeof(char) * (length + 1));
+int buffer_add_string(buffer_t *buffer, uint32_t length, char *string) {
+  return buffer_add(buffer, string, sizeof(char) * (length + 1));
 }
 
 uint32_t buffer_read_uint32(buffer_t *buffer) {
@@ -61,10 +67,18 @@ char *buffer_read_string(buffer_t *buffer, uint32_t length) {
 
 buffer_t *buffer_dup(buffer_t *buffer) {
   buffer_t *duplicated = buffer_create();
+  if (duplicated == NULL)
+    return NULL;
+
   duplicated->size = buffer->size;
   duplicated->offset = buffer->offset;
   duplicated->stream = malloc(duplicated->size);
-  memcpy(duplicated->stream, buffer->stream, buffer->size);
 
+  if (duplicated->stream == NULL) {
+    buffer_destroy(duplicated);
+    return NULL;
+  }
+
+  memcpy(duplicated->stream, buffer->stream, buffer->size);
   return duplicated;
 }

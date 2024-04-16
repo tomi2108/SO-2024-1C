@@ -14,7 +14,7 @@ typedef struct {
 
 /**
  * @fn     buffer_create
- * @return Created buffer
+ * @return Created buffer or NULL if creation errors
  * @brief  Initializes empty buffer with size 0 and offset 0
  */
 buffer_t *buffer_create(void);
@@ -31,10 +31,11 @@ void buffer_destroy(buffer_t *buffer);
  * @param  buffer Buffer to add to
  * @param  data   Stream to add to the buffer
  * @param  size   Size of the stream in bytes to add to the buffer
+ * @return 0 if adding was successful or -1 if error ocurred
  * @brief  Adds stream to buffer in the current position and adjusts size
  * accordingly
  */
-void buffer_add(buffer_t *buffer, void *data, size_t size);
+int buffer_add(buffer_t *buffer, void *data, size_t size);
 
 /**
  * @fn    buffer_read
@@ -49,26 +50,29 @@ void buffer_read(buffer_t *buffer, void *data, size_t size);
  * @fn    buffer_add_uint32
  * @param buffer Buffer to add to
  * @param data   Data to add
+ * @return 0 if adding was successful or -1 if error ocurred
  * @brief Adds an uint32 to the buffer
  */
-void buffer_add_uint32(buffer_t *buffer, uint32_t data);
+int buffer_add_uint32(buffer_t *buffer, uint32_t data);
 
 /**
  * @fn    buffer_add_uint8
  * @param buffer Buffer to add to
  * @param data   Data to add
+ * @return 0 if adding was successful or -1 if error ocurred
  * @brief Adds an uint8 to the buffer
  */
-void buffer_add_uint8(buffer_t *buffer, uint8_t data);
+int buffer_add_uint8(buffer_t *buffer, uint8_t data);
 
 /**
  * @fn    buffer_add_string
  * @param buffer Buffer to add to
  * @param length Length of the string to add
  * @param string String to add
+ * @return 0 if adding was successful or -1 if error ocurred
  * @brief Adds a string to the buffer
  */
-void buffer_add_string(buffer_t *buffer, uint32_t length, char *string);
+int buffer_add_string(buffer_t *buffer, uint32_t length, char *string);
 
 /**
  * @fn     buffer_read_uint8
@@ -98,7 +102,7 @@ char *buffer_read_string(buffer_t *buffer, uint32_t length);
 /**
  * @fn    buffer_dup
  * @param  buffer Buffer to duplicate
- * @return A new buffer that must be destroyed with buffer_destroy(1)
+ * @return A new buffer that must be destroyed with buffer_destroy(1) or NULL if error ocurred
  * @brief  Creates a new buffer duplicated from the given buffer.
  */
 buffer_t *buffer_dup(buffer_t *buffer);

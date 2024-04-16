@@ -5,14 +5,32 @@
 
 packet_t *instruction_pack(instruction_t instruction) {
   packet_t *packet = packet_create(INSTRUCTION);
-  packet_add(packet, &instruction.op, sizeof(instruction_op_t));
-  packet_add_uint32(packet, list_size(instruction.params));
+  if (packet == NULL)
+    return NULL;
+
+  int err_op = packet_add(packet, &instruction.op, sizeof(instruction_op_t));
+  if (err_op == -1) {
+    packet_destroy(packet);
+    return NULL;
+  }
+
+  int err_params_size = packet_add_uint32(packet, list_size(instruction.params));
+  if (err_params_size == -1) {
+    packet_destroy(packet);
+    return NULL;
+
+  }
+
   t_list_iterator *iterator = list_iterator_create(instruction.params);
   while (list_iterator_has_next(iterator)) {
     // Todos los parametros de instrucciones son numeros?? si no es asi, como
     // podemos representarlos... ?
     uint32_t *next = list_iterator_next(iterator);
-    packet_add_uint32(packet, *next);
+    int err_param = packet_add_uint32(packet, *next);
+    if(err_param == -1){
+      packet_destroy(packet);
+      return NULL;
+    }
   }
 
   return packet;
