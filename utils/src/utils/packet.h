@@ -8,6 +8,7 @@
 #include <sys/socket.h>
 
 typedef enum {
+  HANDSHAKE,
   STATUS,
   READ_DIR,
   WRITE_DIR,

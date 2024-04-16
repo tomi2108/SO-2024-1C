@@ -1,8 +1,28 @@
 #include "connection.h"
+#include "packet.h"
+#include "status.h"
 
-int handshake_server(void) {}
+int handshake_server(packet_t *handshake_packet) {
+  char *handshake_string = packet_read_string(handshake_packet);
+  if (strcmp("AGUANTE_MESSI", handshake_string) == 0)
+    return 0;
+  return -1;
+}
 
-int handshake_client(void) {}
+int handshake_client(int socket) {
+  packet_t *packet = packet_create(HANDSHAKE);
+  packet_add_string(packet, "AGUANTE_MESSI");
+  packet_send(packet, socket);
+  packet_destroy(packet);
+
+  packet_t *res = packet_recieve(socket);
+  status_code res_status = status_read_packet(res);
+  packet_destroy(res);
+
+  if (res_status == OK)
+    return 0;
+  return -1;
+}
 
 int connection_create_client(char *server_ip, char *server_port) {
   struct addrinfo hints;
@@ -29,9 +49,7 @@ int connection_create_client(char *server_ip, char *server_port) {
     return -1;
 
   freeaddrinfo(server_info);
-  int err_handshake = handshake_client();
-  if (err_handshake == -1)
-    return -1;
+  handshake_client(fd_socket);
 
   return fd_socket;
 }
@@ -65,15 +83,27 @@ int connection_create_server(char *port) {
 
   freeaddrinfo(server_info);
 
-  int err_handshake = handshake_server();
-  if (err_handshake == -1)
-    return -1;
-
   return fd_socket;
 }
 
 int connection_accept_client(int fd_server_socket) {
-  return accept(fd_server_socket, NULL, NULL);
+  int client_socket = accept(fd_server_socket, NULL, NULL);
+  packet_t *handshake_packet = packet_recieve(client_socket);
+
+  int handshake_result = handshake_server(handshake_packet);
+  packet_destroy(handshake_packet);
+  if (handshake_result == -1) {
+    packet_t *result = status_create_packet(ERROR);
+    packet_send(result, client_socket);
+    packet_destroy(result);
+    connection_close(client_socket);
+    return -1;
+  }
+
+  packet_t *result = status_create_packet(OK);
+  packet_send(result, client_socket);
+  packet_destroy(result);
+  return client_socket;
 }
 
 int connection_close(int fd_socket) { return close(fd_socket); }

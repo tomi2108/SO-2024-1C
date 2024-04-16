@@ -115,6 +115,8 @@ int main(int argc, char *argv[]) {
 
   while (1) {
     int client_socket = connection_accept_client(server_socket);
+    if (client_socket == -1)
+      continue;
     pthread_t thread;
     int *arg = malloc(sizeof(int));
     *arg = client_socket;
