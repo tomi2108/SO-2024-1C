@@ -1,4 +1,5 @@
 #include "instruction.h"
+#include "packet.h"
 
 char *instruction_op_to_string(instruction_op op) {
   switch (op) {
@@ -106,4 +107,14 @@ void instruction_jnz(t_list *params, uint32_t *pc) {
   }
 }
 
-void instruction_io_gen_sleep(t_list *params, int socket) {}
+void instruction_io_gen_sleep(t_list *params, int socket) {
+
+  param *first_param = list_get(params, 0);
+  param *second_param = list_get(params, 1);
+
+  packet_t *res = packet_create(IO_OP);
+  packet_add_string(res, (char *)first_param->value);
+  packet_add(res, second_param->value, sizeof(long));
+  packet_send(res, socket);
+  packet_destroy(res);
+}

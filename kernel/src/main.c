@@ -1,3 +1,4 @@
+#include <commons/collections/dictionary.h>
 #include <commons/collections/queue.h>
 #include <commons/config.h>
 #include <commons/log.h>
@@ -36,6 +37,18 @@ process_t *exec;
 t_list *finished;
 // seran multiples colas
 t_queue *blocked;
+
+typedef struct {
+  int socket;
+  char *type;
+} io;
+t_dictionary *io_dict;
+
+void free_io(void *e) {
+  io *interface = (io *)e;
+  free(interface->type);
+  free(interface);
+}
 
 void print_process_queue(t_queue *queue, char *name) {
 
@@ -87,11 +100,11 @@ void response_register_io(packet_t *request, int io_socket) {
   log_info(logger, "Se conecto una interfaz de tipo %s y nombre %s",
            tipo_interfaz, nombre);
 
-  packet_t *res = packet_create(REGISTER_IO);
-  packet_add_uint32(res, 2);
-  packet_send(res, io_socket);
-  packet_destroy(res);
-  // guardar el socket de la I/O para responderle cuando sea necesario
+  io *interfaz = malloc(sizeof(io));
+  interfaz->type = strdup(tipo_interfaz);
+  interfaz->socket = io_socket;
+
+  dictionary_put(io_dict, nombre, interfaz);
 }
 
 void *atender_cliente(void *args) {
@@ -137,8 +150,8 @@ void init_process(void) {
 };
 
 void end_process(void) {}
-void stop_planner(void) {}
-void start_planner(void) {}
+void stop_scheduler(void) {}
+void start_scheduler(void) {}
 void change_multiprogramming(void) {}
 
 void list_processes(void) {
@@ -159,6 +172,30 @@ void request_exec_process(process_t process) {
 
   packet_t *request = process_pack(process);
   packet_send(request, socket_cpu_dispatch);
+
+  packet_t *res = packet_recieve(socket_cpu_dispatch);
+  switch (res->type) {
+  case IO_OP: {
+    char *nombre = packet_read_string(res);
+    long tiempo_espera;
+    packet_read(res, &tiempo_espera, sizeof(long));
+    packet_destroy(res);
+
+    if (dictionary_has_key(io_dict, nombre)) {
+      io *interfaz = dictionary_get(io_dict, nombre);
+      packet_t *io_res = packet_create(REGISTER_IO);
+      packet_add(io_res, &tiempo_espera, sizeof(long));
+      packet_send(io_res, interfaz->socket);
+      packet_destroy(io_res);
+    }
+
+    break;
+  }
+  case STATUS:
+    break;
+  default:
+    break;
+  }
 
   connection_close(socket_cpu_dispatch);
   packet_destroy(request);
@@ -202,11 +239,15 @@ void *consola_interactiva(void *args) {
       end_process();
       break;
     case '4':
-      stop_planner();
+      stop_scheduler();
       break;
-    case '5':
-      start_planner();
+    case '5': {
+      // mock enviar proceso al cpu
+      process_t process = {1, "/process1", EXEC, 2, 0};
+      request_exec_process(process);
+      // start_scheduler();
       break;
+    }
     case '6':
       change_multiprogramming();
       break;
@@ -266,6 +307,8 @@ int main(int argc, char *argv[]) {
   ready_queue = queue_create();
   exec = NULL;
 
+  io_dict = dictionary_create();
+
   int server_socket = connection_create_server(puerto_escucha);
   if (server_socket == -1) {
     log_error(logger, "Imposible levantar servidor");
@@ -275,7 +318,6 @@ int main(int argc, char *argv[]) {
 
   pthread_t console_thread;
   pthread_create(&console_thread, NULL, &consola_interactiva, NULL);
-
   while (1) {
     int client_socket = connection_accept_client(server_socket);
     pthread_t thread;
@@ -285,6 +327,7 @@ int main(int argc, char *argv[]) {
     pthread_detach(thread);
   }
 
+  dictionary_destroy_and_destroy_elements(io_dict, &free_io);
   queue_destroy(new_queue);
   queue_destroy(ready_queue);
   pthread_join(console_thread, NULL);

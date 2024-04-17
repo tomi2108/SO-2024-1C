@@ -16,6 +16,7 @@ typedef enum {
   FETCH_INSTRUCTION,
   INSTRUCTION,
   REGISTER_IO,
+  IO_OP,
   PROCESS
 } packet_type;
 

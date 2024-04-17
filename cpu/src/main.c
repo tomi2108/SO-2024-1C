@@ -190,11 +190,6 @@ void *server_dispatch(void *args) {
   log_info(logger, "Servidor dispatch levantado en el puerto %s",
            puerto_dispatch);
 
-  // mock al kernel enviando un proceso
-  process_t process = {3, "/process1", EXEC, 4, 0};
-  packet_t *request = process_pack(process);
-  response_exec_process(request, 1);
-
   while (1) {
     int client_socket = connection_accept_client(server_socket);
     packet_t *req = packet_recieve(client_socket);

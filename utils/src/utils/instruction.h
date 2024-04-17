@@ -2,6 +2,7 @@
 #ifndef UTILS_INSTRUCTION_H_
 #define UTILS_INSTRUCTION_H_
 
+#include "packet.h"
 #include <commons/collections/list.h>
 #include <stdint.h>
 #include <string.h>

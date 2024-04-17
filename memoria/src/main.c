@@ -23,7 +23,8 @@ int retardo_respuesta;
 char *path_instrucciones;
 
 char *fetch_instruction(uint32_t program_counter, char *instruction_path) {
-  return "JNZ BX 9";
+  // mock devolver al cpu siempre la misma instruccion
+  return "IO_GEN_SLEEP messi 10";
 }
 
 uint8_t path_exists(char *path) {

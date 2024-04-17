@@ -25,8 +25,8 @@ char *path_base_dialfs;
 int block_size;
 int block_count;
 
-void interfaz_generica(uint32_t tiempo_espera) {
-  log_info(logger, "Esperando %u segundos",
+void interfaz_generica(long tiempo_espera) {
+  log_info(logger, "Esperando %ld segundos",
            (tiempo_espera * tiempo_unidad_trabajo_ms) / 1000);
   sleep((tiempo_unidad_trabajo_ms * tiempo_espera) / 1000);
 }
@@ -163,7 +163,8 @@ int main(int argc, char *argv[]) {
     log_debug(logger, "Esperando instruccion del kernel");
     packet_t *res = packet_recieve(socket_kernel);
     if (strcmp(io_type, "generica") == 0) {
-      uint32_t tiempo_espera = packet_read_uint32(res);
+      long tiempo_espera;
+      packet_read(res, &tiempo_espera, sizeof(long));
       interfaz_generica(tiempo_espera);
     } else if (strcmp(io_type, "stdin")) {
       uint32_t direccion = packet_read_uint32(res);
