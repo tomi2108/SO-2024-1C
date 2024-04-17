@@ -32,7 +32,8 @@ int packet_add_uint8(packet_t *packet, uint8_t data) {
   return buffer_add_uint8(packet->buffer, data);
 }
 
-int packet_add_string(packet_t *packet, uint32_t length, char *string) {
+int packet_add_string(packet_t *packet, char *string) {
+  uint32_t length = strlen(string);
   int err = buffer_add_uint32(packet->buffer, length);
   int err_string = buffer_add_string(packet->buffer, length, string);
   if ((err && err_string) == 0)
@@ -49,9 +50,9 @@ uint8_t packet_read_uint8(packet_t *packet) {
   return buffer_read_uint8(packet->buffer);
 }
 
-char *packet_read_string(packet_t *packet, uint32_t *length) {
-  *length = buffer_read_uint32(packet->buffer);
-  return buffer_read_string(packet->buffer, *length);
+char *packet_read_string(packet_t *packet) {
+  uint32_t length = buffer_read_uint32(packet->buffer);
+  return buffer_read_string(packet->buffer, length);
 }
 
 int packet_send(packet_t *packet, int socket) {

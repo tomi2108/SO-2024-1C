@@ -8,13 +8,15 @@
 #include <sys/socket.h>
 
 typedef enum {
+  HANDSHAKE,
   STATUS,
   READ_DIR,
   WRITE_DIR,
   INIT_PROCESS,
   FETCH_INSTRUCTION,
   INSTRUCTION,
-  REGISTER_IO
+  REGISTER_IO,
+  PROCESS
 } packet_type;
 
 typedef struct {
@@ -82,7 +84,7 @@ int packet_add_uint8(packet_t *packet, uint8_t data);
  * @return 0 if adding was successful or -1 if error ocurred
  * @brief  Adds the given data to the end of the packet's buffer
  */
-int packet_add_string(packet_t *packet, uint32_t length, char *string);
+int packet_add_string(packet_t *packet, char *string);
 
 /*
  * @fn    packet_read_uint32
@@ -103,11 +105,10 @@ uint8_t packet_read_uint8(packet_t *packet);
 /*
  * @fn    packet_read_string
  * @param packet Packet to read from
- * @param length Pointer to write the length of the read string
  * @return Read string
  * @brief Reads from packets's buffer
  */
-char *packet_read_string(packet_t *packet, uint32_t *length);
+char *packet_read_string(packet_t *packet);
 
 /**
  * @fn     packet_send
@@ -130,7 +131,8 @@ packet_t *packet_recieve(int socket);
 /**
  * @fn     packet_dup
  * @param  packet Packet to duplicate
- * @return A new packet that must be destroyed with packet_destroy(1) or NULL if error ocurred
+ * @return A new packet that must be destroyed with packet_destroy(1) or NULL if
+ * error ocurred
  * @brief  Creates a new packet duplicated from the given packet.
  */
 packet_t *packet_dup(packet_t *packet);

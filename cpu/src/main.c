@@ -3,27 +3,96 @@
 #include <pthread.h>
 #include <utils/connection.h>
 #include <utils/packet.h>
+#include <utils/process.h>
 
 t_log *logger;
 t_config *config;
 
-void *gestionar_dispatch(void *args) {
-  char *puerto_dispatch =
-      config_get_string_value(config, "PUERTO_ESCUCHA_DISPATCH");
+char *puerto_dispatch;
+char *puerto_interrupt;
 
-  int socket_dispatch = connection_create_server(puerto_dispatch);
+char *ip_memoria;
+char *puerto_memoria;
 
-  connection_close(socket_dispatch);
+int cantidad_entradas_tlb;
+char *algoritmo_tlb;
+
+uint32_t pc = 0;
+
+void response_exec_process(packet_t *req, int client_socket) {
+  process_t process = process_unpack(req);
+  // ejecutar ciclo de instrucciones con process->path
+}
+
+char *request_fetch_instruction(process_t process) {
+  int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
+  if (socket_memoria == -1) {
+    log_error(logger, "Imposible conectarse con la memoria");
+    exit(5);
+  }
+  packet_t *req = packet_create(FETCH_INSTRUCTION);
+  packet_add_uint32(req, process.program_counter);
+  packet_add_string(req, process.path);
+  packet_send(req, socket_memoria);
+  packet_destroy(req);
+
+  packet_t *res = packet_recieve(socket_memoria);
+  char *instruction;
+  if (res->type == INSTRUCTION) {
+    // strdup(packet_read_string(res)) ??
+    instruction = packet_read_string(res);
+  } else
+    instruction = NULL;
+  packet_destroy(res);
+  connection_close(socket_memoria);
+  return instruction;
+}
+
+void decode_instruction(char *instruction) {}
+
+void exec_instruction() {}
+
+void *server_dispatch(void *args) {
+  int server_socket = connection_create_server(puerto_dispatch);
+  if (server_socket == -1) {
+    log_error(logger, "Imposible crear el servidor dispatch");
+    exit(3);
+  }
+
+  log_info(logger, "Servidor dispatch levantado en el puerto %s",
+           puerto_dispatch);
+
+  while (1) {
+    int client_socket = connection_accept_client(server_socket);
+    packet_t *req = packet_recieve(client_socket);
+    if (req == NULL)
+      break;
+    switch (req->type) {
+    case PROCESS:
+      response_exec_process(req, client_socket);
+      break;
+    default:
+      break;
+    }
+
+    packet_destroy(req);
+    connection_close(client_socket);
+  }
+  connection_close(server_socket);
   return args;
 }
 
-void *gestionar_interrupt(void *args) {
+void *server_interrupt(void *args) {
+  int server_socket = connection_create_server(puerto_interrupt);
 
-  char *puerto_interrupt =
-      config_get_string_value(config, "PUERTO_ESCUCHA_INTERRUPT");
-  int socket_interrupt = connection_create_server(puerto_interrupt);
+  if (server_socket == -1) {
+    log_error(logger, "Imposible crear el servidor interrupt");
+    exit(4);
+  }
 
-  connection_close(socket_interrupt);
+  log_info(logger, "Servidor interrupt levantado en el puerto %s",
+           puerto_interrupt);
+  connection_close(server_socket);
   return args;
 }
 
@@ -39,17 +108,25 @@ int main(int argc, char *argv[]) {
   config = config_create(argv[1]);
   if (config == NULL) {
     log_error(logger, "Error al crear la configuracion");
+    return 2;
   }
-  int cantidad_entradas_tlb =
-      config_get_int_value(config, "CANTIDAD_ENTRADAS_TLB");
-  char *algoritmo_tlb = config_get_string_value(config, "ALGORITMO_TLB");
 
-  pthread_t *servers[2];
-  pthread_create(servers[0], NULL, &gestionar_dispatch, NULL);
-  pthread_create(servers[1], NULL, &gestionar_interrupt, NULL);
+  puerto_dispatch = config_get_string_value(config, "PUERTO_ESCUCHA_DISPATCH");
+  puerto_interrupt =
+      config_get_string_value(config, "PUERTO_ESCUCHA_INTERRUPT");
 
-  pthread_join(*servers[0], NULL);
-  pthread_join(*servers[1], 0);
+  ip_memoria = config_get_string_value(config, "IP_MEMORIA");
+  puerto_memoria = config_get_string_value(config, "PUERTO_MEMORIA");
+
+  cantidad_entradas_tlb = config_get_int_value(config, "CANTIDAD_ENTRADAS_TLB");
+  algoritmo_tlb = config_get_string_value(config, "ALGORITMO_TLB");
+
+  pthread_t servers[2];
+  pthread_create(&servers[0], NULL, &server_dispatch, NULL);
+  pthread_create(&servers[1], NULL, &server_interrupt, NULL);
+
+  pthread_join(servers[0], NULL);
+  pthread_join(servers[1], 0);
 
   log_destroy(logger);
   config_destroy(config);
