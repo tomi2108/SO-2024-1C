@@ -23,7 +23,7 @@ int retardo_respuesta;
 char *path_instrucciones;
 
 char *fetch_instruction(uint32_t program_counter, char *instruction_path) {
-  return "SUM EAX BX";
+  return "JNZ BX 9";
 }
 
 uint8_t path_exists(char *path) {

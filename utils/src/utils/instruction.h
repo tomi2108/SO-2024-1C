@@ -3,6 +3,7 @@
 #define UTILS_INSTRUCTION_H_
 
 #include <commons/collections/list.h>
+#include <stdint.h>
 #include <string.h>
 
 typedef enum {
@@ -31,7 +32,7 @@ void instruction_sum(t_list *params);
 
 void instruction_sub(t_list *params);
 
-void instruction_jnz(t_list *params);
+void instruction_jnz(t_list *params, uint32_t *pc);
 
 void instruction_io_gen_sleep(t_list *params, int socket);
 #endif

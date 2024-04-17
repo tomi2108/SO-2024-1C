@@ -138,8 +138,6 @@ instruction_op decode_instruction(char *instruction, t_list *params) {
 }
 
 void exec_instruction(instruction_op op, t_list *params, int client_socket) {
-  log_debug(logger, "Valor de bx antes de la instruccion: %u", bx);
-  log_debug(logger, "Valor de eax antes de la instruccion: %u", eax);
   switch (op) {
   case SET:
     instruction_set(params);
@@ -151,7 +149,7 @@ void exec_instruction(instruction_op op, t_list *params, int client_socket) {
     instruction_sub(params);
     break;
   case JNZ:
-    instruction_jnz(params);
+    instruction_jnz(params, &pc);
     break;
   case IO_GEN_SLEEP: {
     instruction_io_gen_sleep(params, client_socket);
@@ -160,8 +158,6 @@ void exec_instruction(instruction_op op, t_list *params, int client_socket) {
   default:
     break;
   }
-  log_debug(logger, "Valor de bx despues de la instruccion: %u", bx);
-  log_debug(logger, "Valor de eax despues de la instruccion: %u", eax);
 }
 
 void free_param(void *p) {
@@ -179,7 +175,6 @@ void response_exec_process(packet_t *req, int client_socket) {
   instruction_op operation = decode_instruction(instruction, params);
 
   exec_instruction(operation, params, client_socket);
-  log_debug(logger, "%u", eax);
   list_destroy_and_destroy_elements(params, &free_param);
   // instruction = request_fetch_instruction(process);
   // }
