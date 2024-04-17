@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/unistd.h>
+#include <time.h>
 #include <unistd.h>
 #include <utils/connection.h>
 #include <utils/packet.h>
@@ -23,6 +24,10 @@ int retardo_respuesta;
 char *path_instrucciones;
 
 char *fetch_instruction(uint32_t program_counter, char *instruction_path) {
+  sleep(7);
+  int seed = rand();
+  if (seed % 2 == 0)
+    return "SUM AX BX";
   // mock devolver al cpu siempre la misma instruccion
   return "IO_GEN_SLEEP messi 10";
 }
@@ -86,7 +91,7 @@ void *atender_cliente(void *args) {
 }
 
 int main(int argc, char *argv[]) {
-
+  srand(time(NULL));
   logger = log_create("memoria.log", "MEMORIA", 1, LOG_LEVEL_DEBUG);
 
   if (argc < 2) {

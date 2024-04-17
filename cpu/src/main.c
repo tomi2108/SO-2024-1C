@@ -3,6 +3,7 @@
 #include <commons/log.h>
 #include <errno.h>
 #include <pthread.h>
+#include <semaphore.h>
 #include <stdint.h>
 #include <string.h>
 #include <utils/connection.h>
@@ -36,6 +37,11 @@ uint32_t edx = 0;
 
 uint32_t si = 0;
 uint32_t di = 0;
+
+sem_t sem_check_interrupt;
+sem_t sem_process_interrupt;
+
+int dealloc = 0;
 
 char *request_fetch_instruction(process_t process) {
   int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
@@ -170,14 +176,42 @@ void response_exec_process(packet_t *req, int client_socket) {
 
   char *instruction = request_fetch_instruction(process);
 
-  // while (instruction != NULL) {
-  t_list *params = list_create();
-  instruction_op operation = decode_instruction(instruction, params);
+  while (instruction != NULL) {
+    t_list *params = list_create();
 
-  exec_instruction(operation, params, client_socket);
-  list_destroy_and_destroy_elements(params, &free_param);
-  // instruction = request_fetch_instruction(process);
-  // }
+    instruction_op operation = decode_instruction(instruction, params);
+
+    log_debug(logger, "[DISPATCH] Ejecutando instruccion %s",
+              instruction_op_to_string(operation));
+    fflush(stdout);
+
+    exec_instruction(operation, params, client_socket);
+    process.quantum--;
+    process.program_counter++;
+
+    if (!instruction_is_blocking(operation)) {
+      packet_t *packet = packet_create(NON_BLOCKING_OP);
+      packet_send(packet, client_socket);
+    }
+
+    packet_t *res = process_pack(process);
+    packet_send(res, client_socket);
+
+    sem_wait(&sem_process_interrupt);
+    if (dealloc == 1) {
+      log_debug(logger, "[DISPATCH] Desalojando proceso");
+      fflush(stdout);
+    } else {
+      log_debug(logger, "[DISPATCH] La ejecucion continua");
+      fflush(stdout);
+    }
+    dealloc = 0;
+    sem_post(&sem_check_interrupt);
+    list_destroy_and_destroy_elements(params, &free_param);
+    log_debug(logger, "[DISPATCH] Siguiente instruccion");
+    fflush(stdout);
+    instruction = request_fetch_instruction(process);
+  }
 }
 
 void *server_dispatch(void *args) {
@@ -210,6 +244,17 @@ void *server_dispatch(void *args) {
   return args;
 }
 
+void check_interrupt(packet_t *req) {
+  log_debug(logger, "[INTERRUPT] Se recibio una interrupcion, procesando....");
+  fflush(stdout);
+  uint8_t message = packet_read_uint8(req);
+  if (message != 0)
+    dealloc = 1;
+  else
+    dealloc = 0;
+  sem_post(&sem_process_interrupt);
+}
+
 void *server_interrupt(void *args) {
   int server_socket = connection_create_server(puerto_interrupt);
 
@@ -220,6 +265,24 @@ void *server_interrupt(void *args) {
 
   log_info(logger, "Servidor interrupt levantado en el puerto %s",
            puerto_interrupt);
+
+  while (1) {
+    sem_wait(&sem_check_interrupt);
+    int client_socket = connection_accept_client(server_socket);
+    packet_t *req = packet_recieve(client_socket);
+    if (req == NULL)
+      break;
+    switch (req->type) {
+    case INTERRUPT: {
+      check_interrupt(req);
+      packet_destroy(req);
+      connection_close(client_socket);
+      break;
+    }
+    default:
+      break;
+    }
+  }
   connection_close(server_socket);
   return args;
 }
@@ -249,6 +312,9 @@ int main(int argc, char *argv[]) {
   cantidad_entradas_tlb = config_get_int_value(config, "CANTIDAD_ENTRADAS_TLB");
   algoritmo_tlb = config_get_string_value(config, "ALGORITMO_TLB");
 
+  sem_init(&sem_check_interrupt, 1, 1);
+  sem_init(&sem_process_interrupt, 1, 0);
+
   pthread_t servers[2];
   pthread_create(&servers[0], NULL, &server_dispatch, NULL);
   pthread_create(&servers[1], NULL, &server_interrupt, NULL);
@@ -256,6 +322,8 @@ int main(int argc, char *argv[]) {
   pthread_join(servers[0], NULL);
   pthread_join(servers[1], 0);
 
+  sem_destroy(&sem_check_interrupt);
+  sem_destroy(&sem_process_interrupt);
   log_destroy(logger);
   config_destroy(config);
   return 0;

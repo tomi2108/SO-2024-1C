@@ -33,6 +33,14 @@ instruction_op instruction_op_from_string(char *op) {
   return UNKNOWN_INSTRUCTION;
 }
 
+int instruction_is_blocking(instruction_op op) {
+
+  if (op == IO_GEN_SLEEP)
+    return 1;
+
+  return 0;
+}
+
 void instruction_set(t_list *params) {
   param *first_param = list_get(params, 0);
   param *second_param = list_get(params, 1);
@@ -112,7 +120,7 @@ void instruction_io_gen_sleep(t_list *params, int socket) {
   param *first_param = list_get(params, 0);
   param *second_param = list_get(params, 1);
 
-  packet_t *res = packet_create(IO_OP);
+  packet_t *res = packet_create(BLOCKING_OP);
   packet_add_string(res, (char *)first_param->value);
   packet_add(res, second_param->value, sizeof(long));
   packet_send(res, socket);

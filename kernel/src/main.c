@@ -160,6 +160,22 @@ void list_processes(void) {
   // imprimir el resto de procsos
 };
 
+void request_cpu_interrupt(uint8_t interrupt) {
+
+  int socket_cpu_interrupt =
+      connection_create_client(ip_cpu, puerto_cpu_interrupt);
+  if (socket_cpu_interrupt == -1) {
+    log_error(logger,
+              "Imposible crear la conexion al servidor dispatch del cpu");
+    exit(6);
+  }
+  packet_t *req = packet_create(INTERRUPT);
+  packet_add_uint8(req, interrupt);
+  packet_send(req, socket_cpu_interrupt);
+  packet_destroy(req);
+  connection_close(socket_cpu_interrupt);
+}
+
 void request_exec_process(process_t process) {
 
   int socket_cpu_dispatch =
@@ -172,29 +188,45 @@ void request_exec_process(process_t process) {
 
   packet_t *request = process_pack(process);
   packet_send(request, socket_cpu_dispatch);
+  int break_while = 0;
+  while (break_while != 1) {
 
-  packet_t *res = packet_recieve(socket_cpu_dispatch);
-  switch (res->type) {
-  case IO_OP: {
-    char *nombre = packet_read_string(res);
-    long tiempo_espera;
-    packet_read(res, &tiempo_espera, sizeof(long));
-    packet_destroy(res);
+    packet_t *res = packet_recieve(socket_cpu_dispatch);
+    switch (res->type) {
+    case BLOCKING_OP: {
+      char *nombre = packet_read_string(res);
+      long tiempo_espera;
+      packet_read(res, &tiempo_espera, sizeof(long));
+      packet_destroy(res);
 
-    if (dictionary_has_key(io_dict, nombre)) {
-      io *interfaz = dictionary_get(io_dict, nombre);
-      packet_t *io_res = packet_create(REGISTER_IO);
-      packet_add(io_res, &tiempo_espera, sizeof(long));
-      packet_send(io_res, interfaz->socket);
-      packet_destroy(io_res);
+      if (dictionary_has_key(io_dict, nombre)) {
+        io *interfaz = dictionary_get(io_dict, nombre);
+        packet_t *io_res = packet_create(REGISTER_IO);
+        packet_add(io_res, &tiempo_espera, sizeof(long));
+        packet_send(io_res, interfaz->socket);
+        packet_destroy(io_res);
+
+        packet_t *updated_process_res = packet_recieve(socket_cpu_dispatch);
+        process_t updated_process = process_unpack(updated_process_res);
+        // poner en la cola de blocked
+
+        // break_while = 1;
+        request_cpu_interrupt(1);
+      }
+
+      break;
     }
+    case NON_BLOCKING_OP:
+      packet_t *updated_process_res = packet_recieve(socket_cpu_dispatch);
+      process_t updated_process = process_unpack(updated_process_res);
 
-    break;
-  }
-  case STATUS:
-    break;
-  default:
-    break;
+      // chequear quantum restante
+      // por ahora nunca interrumpo al cpu (FIFO)
+      request_cpu_interrupt(0);
+      break;
+    default:
+      break;
+    }
   }
 
   connection_close(socket_cpu_dispatch);
@@ -293,15 +325,6 @@ int main(int argc, char *argv[]) {
   recursos = config_get_array_value(config, "RECURSOS");
   grado_multiprogramacion =
       config_get_int_value(config, "GRADO_MULTIPROGRAMACION");
-
-  int socket_cpu_interrupt =
-      connection_create_client(ip_cpu, puerto_cpu_interrupt);
-  if (socket_cpu_interrupt == -1) {
-    log_error(logger,
-              "Imposible crear la conexion al servidor interrupt del cpu");
-  }
-  // por ahora
-  connection_close(socket_cpu_interrupt);
 
   new_queue = queue_create();
   ready_queue = queue_create();

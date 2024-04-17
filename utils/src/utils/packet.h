@@ -16,8 +16,10 @@ typedef enum {
   FETCH_INSTRUCTION,
   INSTRUCTION,
   REGISTER_IO,
-  IO_OP,
-  PROCESS
+  BLOCKING_OP,
+  NON_BLOCKING_OP,
+  PROCESS,
+  INTERRUPT
 } packet_type;
 
 typedef struct {

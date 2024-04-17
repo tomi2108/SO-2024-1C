@@ -27,6 +27,8 @@ char *instruction_op_to_string(instruction_op op);
 
 instruction_op instruction_op_from_string(char *string);
 
+int instruction_is_blocking(instruction_op op);
+
 void instruction_set(t_list *params);
 
 void instruction_sum(t_list *params);
