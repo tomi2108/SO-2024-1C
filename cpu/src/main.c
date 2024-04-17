@@ -1,7 +1,12 @@
+#include <commons/collections/list.h>
 #include <commons/config.h>
 #include <commons/log.h>
+#include <errno.h>
 #include <pthread.h>
+#include <stdint.h>
+#include <string.h>
 #include <utils/connection.h>
+#include <utils/instruction.h>
 #include <utils/packet.h>
 #include <utils/process.h>
 
@@ -19,10 +24,18 @@ char *algoritmo_tlb;
 
 uint32_t pc = 0;
 
-void response_exec_process(packet_t *req, int client_socket) {
-  process_t process = process_unpack(req);
-  // ejecutar ciclo de instrucciones con process->path
-}
+uint8_t ax = 0;
+uint8_t bx = 0;
+uint8_t cx = 0;
+uint8_t dx = 0;
+
+uint32_t eax = 0;
+uint32_t ebx = 0;
+uint32_t ecx = 0;
+uint32_t edx = 0;
+
+uint32_t si = 0;
+uint32_t di = 0;
 
 char *request_fetch_instruction(process_t process) {
   int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
@@ -48,7 +61,94 @@ char *request_fetch_instruction(process_t process) {
   return instruction;
 }
 
-void decode_instruction(char *instruction) {}
+uint8_t *is_small_register(char *token) {
+  if (strcmp(token, "AX") == 0)
+    return &ax;
+  if (strcmp(token, "BX") == 0)
+    return &bx;
+  if (strcmp(token, "CX") == 0)
+    return &cx;
+  if (strcmp(token, "DX") == 0)
+    return &dx;
+  return NULL;
+}
+uint32_t *is_big_register(char *token) {
+  if (strcmp(token, "EAX") == 0)
+    return &eax;
+  if (strcmp(token, "EBX") == 0)
+    return &ebx;
+  if (strcmp(token, "ECX") == 0)
+    return &ecx;
+  if (strcmp(token, "EDX") == 0)
+    return &edx;
+  return NULL;
+}
+
+instruction_op decode_instruction(char *instruction, t_list *params) {
+
+  char *token = strtok(instruction, " ");
+  if (token == NULL)
+    return UNKNOWN_INSTRUCTION;
+
+  instruction_op op = instruction_op_from_string(token);
+
+  token = strtok(NULL, " ");
+  while (token != NULL) {
+
+    uint8_t *small_register = is_small_register(token);
+    if (small_register != NULL) {
+      list_add(params, small_register);
+      token = strtok(NULL, " ");
+      continue;
+    }
+
+    uint32_t *big_register = is_big_register(token);
+    if (big_register != NULL) {
+      list_add(params, big_register);
+      token = strtok(NULL, " ");
+      continue;
+    }
+
+    long *number = malloc(sizeof(long));
+    long n = strtol(token, NULL, 10);
+    memcpy(number, &n, sizeof(long));
+
+    if (*number != 0 && errno != EINVAL) {
+      list_add(params, number);
+      token = strtok(NULL, " ");
+      continue;
+    }
+
+    list_add(params, token);
+    token = strtok(NULL, " ");
+  }
+  return op;
+}
+
+void imprimir_parametro(void *param) {
+  long *p = (long *)param;
+  log_debug(logger, "Parametro: %ld", *p);
+}
+
+void free_param(void *param) { free(param); };
+void response_exec_process(packet_t *req, int client_socket) {
+  process_t process = process_unpack(req);
+
+  char *instruction = request_fetch_instruction(process);
+
+  while (instruction != NULL) {
+    t_list *params = list_create();
+    instruction_op operation = decode_instruction(instruction, params);
+
+    log_debug(logger, "OPERACION RECIBIDA : %s",
+              instruction_op_to_string(operation));
+
+    list_iterate(params, &imprimir_parametro);
+
+    list_destroy_and_destroy_elements(params, &free_param);
+    instruction = request_fetch_instruction(process);
+  }
+}
 
 void exec_instruction() {}
 
@@ -61,6 +161,11 @@ void *server_dispatch(void *args) {
 
   log_info(logger, "Servidor dispatch levantado en el puerto %s",
            puerto_dispatch);
+
+  // mock al kernel enviando un proceso
+  process_t process = {3, "/process1", EXEC, 4, 0};
+  packet_t *request = process_pack(process);
+  response_exec_process(request, 1);
 
   while (1) {
     int client_socket = connection_accept_client(server_socket);
