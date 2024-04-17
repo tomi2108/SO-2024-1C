@@ -201,16 +201,19 @@ void response_exec_process(packet_t *req, int client_socket) {
     if (dealloc == 1) {
       log_debug(logger, "[DISPATCH] Desalojando proceso");
       fflush(stdout);
+      instruction = NULL;
     } else {
       log_debug(logger, "[DISPATCH] La ejecucion continua");
       fflush(stdout);
     }
-    dealloc = 0;
     sem_post(&sem_check_interrupt);
     list_destroy_and_destroy_elements(params, &free_param);
-    log_debug(logger, "[DISPATCH] Siguiente instruccion");
-    fflush(stdout);
-    instruction = request_fetch_instruction(process);
+    if (dealloc == 0) {
+      instruction = request_fetch_instruction(process);
+      log_debug(logger, "[DISPATCH] Siguiente instruccion");
+      fflush(stdout);
+    }
+    dealloc = 0;
   }
 }
 
@@ -225,6 +228,7 @@ void *server_dispatch(void *args) {
            puerto_dispatch);
 
   while (1) {
+    log_debug(logger, "Esperando un proceso para ejecutar");
     int client_socket = connection_accept_client(server_socket);
     packet_t *req = packet_recieve(client_socket);
     if (req == NULL)

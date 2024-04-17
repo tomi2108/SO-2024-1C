@@ -210,7 +210,7 @@ void request_exec_process(process_t process) {
         process_t updated_process = process_unpack(updated_process_res);
         // poner en la cola de blocked
 
-        // break_while = 1;
+        break_while = 1;
         request_cpu_interrupt(1);
       }
 
