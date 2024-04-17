@@ -33,7 +33,7 @@ int grado_multiprogramacion;
 int next_pid = 1;
 t_queue *new_queue;
 t_queue *ready_queue;
-process_t *exec = NULL;
+process_t *exec;
 t_list *finished;
 // seran multiples colas
 t_queue *blocked;
@@ -160,7 +160,8 @@ void list_processes(void) {
   // imprimir el resto de procsos
 };
 
-packet_t *request_cpu_interrupt(uint8_t interrupt, int socket_cpu_dispatch) {
+void request_cpu_interrupt(uint8_t interrupt) {
+
   int socket_cpu_interrupt =
       connection_create_client(ip_cpu, puerto_cpu_interrupt);
   if (socket_cpu_interrupt == -1) {
@@ -168,28 +169,23 @@ packet_t *request_cpu_interrupt(uint8_t interrupt, int socket_cpu_dispatch) {
               "Imposible crear la conexion al servidor dispatch del cpu");
     exit(6);
   }
-
   packet_t *req = packet_create(INTERRUPT);
   packet_add_uint8(req, interrupt);
   packet_send(req, socket_cpu_interrupt);
-
   packet_destroy(req);
   connection_close(socket_cpu_interrupt);
-
-  if (interrupt != 0) {
-    return packet_recieve(socket_cpu_dispatch);
-  }
-
-  return NULL;
 }
 
-packet_t *wait_process_exec(int socket_cpu_dispatch) {
+process_t request_exec_process(process_t process, int socket_cpu_dispatch) {
+
+  packet_t *request = process_pack(process);
+  packet_send(request, socket_cpu_dispatch);
+
   packet_t *res = packet_recieve(socket_cpu_dispatch);
 
   switch (res->type) {
   case BLOCKING_OP: {
     char *nombre = packet_read_string(res);
-    // por ahora solo IO_GEN_SLEEP
     long tiempo_espera;
     packet_read(res, &tiempo_espera, sizeof(long));
     packet_destroy(res);
@@ -200,44 +196,31 @@ packet_t *wait_process_exec(int socket_cpu_dispatch) {
       packet_add(io_res, &tiempo_espera, sizeof(long));
       packet_send(io_res, interfaz->socket);
       packet_destroy(io_res);
-      return request_cpu_interrupt(1, socket_cpu_dispatch);
+
+      request_cpu_interrupt(1);
     }
     break;
   }
-  case NON_BLOCKING_OP: {
-    return request_cpu_interrupt(0, socket_cpu_dispatch);
-  }
+  case NON_BLOCKING_OP:
+    request_cpu_interrupt(0);
+    break;
   default:
-    return NULL;
+    break;
   }
+
+  connection_close(socket_cpu_dispatch);
+  packet_destroy(request);
   return NULL;
 }
 
 void planificacion_fifo() {
   while (1) {
-    int socket_cpu_dispatch =
-        connection_create_client(ip_cpu, puerto_cpu_dispatch);
-    log_debug(logger, "Enviando proceso al socket %d", socket_cpu_dispatch);
-    fflush(stdout);
-    if (socket_cpu_dispatch == -1) {
-      log_error(logger,
-                "Imposible crear la conexion al servidor dispatch del cpu");
-      exit(5);
+    // semaforos...
+    if (exec == NULL && !queue_is_empty(ready_queue)) {
+      process_t *process_to_exec = queue_pop(ready_queue);
+      request_exec_process(*process_to_exec);
+      exec = process_to_exec;
     }
-
-    // semaforos... para iniciar y detener planificacion
-    // if (exec == NULL && !queue_is_empty(ready_queue)) {
-    process_t process_to_exec = {1, "/process1", EXEC, 2, 0};
-    // process_t *process_to_exec = queue_pop(ready_queue);
-    // exec = process_to_exec;
-    packet_t *request = process_pack(process_to_exec);
-    packet_send(request, socket_cpu_dispatch);
-    packet_destroy(request);
-    packet_t *updated_process = NULL;
-    while (updated_process == NULL) {
-      updated_process = wait_process_exec(socket_cpu_dispatch);
-    }
-    connection_close(socket_cpu_dispatch);
   }
 }
 
@@ -272,7 +255,8 @@ void *consola_interactiva(void *args) {
       break;
     case '5': {
       // mock enviar proceso al cpu
-      planificacion_fifo();
+      process_t process = {1, "/process1", EXEC, 2, 0};
+      request_exec_process(process);
       // start_scheduler();
       break;
     }

@@ -40,8 +40,9 @@ process_t process_unpack(packet_t *packet) {
 }
 
 void process_print(process_t process) {
-  printf("Pid:%u Status:%s Path de instrucciones:%s\n", process.pid,
-         process_status_to_string(process.status), process.path);
+  printf("Pid:%u Status:%s Path de instrucciones:%s Program counter:%u\n",
+         process.pid, process_status_to_string(process.status), process.path,
+         process.program_counter);
 }
 
 char *process_status_to_string(process_status status) {

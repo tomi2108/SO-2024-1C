@@ -186,16 +186,12 @@ void response_exec_process(packet_t *req, int client_socket) {
     fflush(stdout);
 
     exec_instruction(operation, params, client_socket);
-    process.quantum--;
     process.program_counter++;
-
-    if (!instruction_is_blocking(operation)) {
+    if (instruction_is_blocking(operation) == 0) {
       packet_t *packet = packet_create(NON_BLOCKING_OP);
       packet_send(packet, client_socket);
+      packet_destroy(packet);
     }
-
-    packet_t *res = process_pack(process);
-    packet_send(res, client_socket);
 
     sem_wait(&sem_process_interrupt);
     if (dealloc == 1) {
@@ -215,6 +211,8 @@ void response_exec_process(packet_t *req, int client_socket) {
     }
     dealloc = 0;
   }
+  // packet_t *res = process_pack(process);
+  // packet_send(res, client_socket);
 }
 
 void *server_dispatch(void *args) {
@@ -228,9 +226,11 @@ void *server_dispatch(void *args) {
            puerto_dispatch);
 
   while (1) {
-    log_debug(logger, "Esperando un proceso para ejecutar");
+    log_debug(logger, "[DISPATCH] Esperando un proceso para ejecutar");
+    fflush(stdout);
     int client_socket = connection_accept_client(server_socket);
     packet_t *req = packet_recieve(client_socket);
+
     if (req == NULL)
       break;
     switch (req->type) {
@@ -249,8 +249,6 @@ void *server_dispatch(void *args) {
 }
 
 void check_interrupt(packet_t *req) {
-  log_debug(logger, "[INTERRUPT] Se recibio una interrupcion, procesando....");
-  fflush(stdout);
   uint8_t message = packet_read_uint8(req);
   if (message != 0)
     dealloc = 1;
@@ -274,8 +272,6 @@ void *server_interrupt(void *args) {
     sem_wait(&sem_check_interrupt);
     int client_socket = connection_accept_client(server_socket);
     packet_t *req = packet_recieve(client_socket);
-    if (req == NULL)
-      break;
     switch (req->type) {
     case INTERRUPT: {
       check_interrupt(req);

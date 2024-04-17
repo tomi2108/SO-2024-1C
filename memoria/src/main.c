@@ -24,7 +24,7 @@ int retardo_respuesta;
 char *path_instrucciones;
 
 char *fetch_instruction(uint32_t program_counter, char *instruction_path) {
-  sleep(7);
+  sleep(4);
   int seed = rand();
   if (seed % 2 == 0)
     return "SUM AX BX";
