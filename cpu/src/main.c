@@ -25,11 +25,11 @@ char *algoritmo_tlb;
 uint32_t pc = 0;
 
 uint8_t ax = 0;
-uint8_t bx = 0;
+uint8_t bx = 12;
 uint8_t cx = 0;
 uint8_t dx = 0;
 
-uint32_t eax = 0;
+uint32_t eax = 17;
 uint32_t ebx = 0;
 uint32_t ecx = 0;
 uint32_t edx = 0;
@@ -52,7 +52,6 @@ char *request_fetch_instruction(process_t process) {
   packet_t *res = packet_recieve(socket_memoria);
   char *instruction;
   if (res->type == INSTRUCTION) {
-    // strdup(packet_read_string(res)) ??
     instruction = packet_read_string(res);
   } else
     instruction = NULL;
@@ -61,7 +60,7 @@ char *request_fetch_instruction(process_t process) {
   return instruction;
 }
 
-uint8_t *is_small_register(char *token) {
+uint8_t *is_register(char *token) {
   if (strcmp(token, "AX") == 0)
     return &ax;
   if (strcmp(token, "BX") == 0)
@@ -72,7 +71,8 @@ uint8_t *is_small_register(char *token) {
     return &dx;
   return NULL;
 }
-uint32_t *is_big_register(char *token) {
+
+uint32_t *is_extended_register(char *token) {
   if (strcmp(token, "EAX") == 0)
     return &eax;
   if (strcmp(token, "EBX") == 0)
@@ -95,16 +95,22 @@ instruction_op decode_instruction(char *instruction, t_list *params) {
   token = strtok(NULL, " ");
   while (token != NULL) {
 
-    uint8_t *small_register = is_small_register(token);
-    if (small_register != NULL) {
-      list_add(params, small_register);
+    uint8_t *reg = is_register(token);
+    if (reg != NULL) {
+      param *p = malloc(sizeof(param));
+      p->type = REGISTER;
+      p->value = reg;
+      list_add(params, p);
       token = strtok(NULL, " ");
       continue;
     }
 
-    uint32_t *big_register = is_big_register(token);
-    if (big_register != NULL) {
-      list_add(params, big_register);
+    uint32_t *extended_register = is_extended_register(token);
+    if (extended_register != NULL) {
+      param *p = malloc(sizeof(param));
+      p->type = EXTENDED_REGISTER;
+      p->value = extended_register;
+      list_add(params, p);
       token = strtok(NULL, " ");
       continue;
     }
@@ -114,43 +120,70 @@ instruction_op decode_instruction(char *instruction, t_list *params) {
     memcpy(number, &n, sizeof(long));
 
     if (*number != 0 && errno != EINVAL) {
-      list_add(params, number);
+      param *p = malloc(sizeof(param));
+      p->type = NUMBER;
+      p->value = number;
+      list_add(params, p);
       token = strtok(NULL, " ");
       continue;
     }
 
-    list_add(params, token);
+    param *p = malloc(sizeof(param));
+    p->type = STRING;
+    p->value = token;
+    list_add(params, p);
     token = strtok(NULL, " ");
   }
   return op;
 }
 
-void imprimir_parametro(void *param) {
-  long *p = (long *)param;
-  log_debug(logger, "Parametro: %ld", *p);
+void exec_instruction(instruction_op op, t_list *params, int client_socket) {
+  log_debug(logger, "Valor de bx antes de la instruccion: %u", bx);
+  log_debug(logger, "Valor de eax antes de la instruccion: %u", eax);
+  switch (op) {
+  case SET:
+    instruction_set(params);
+    break;
+  case SUM:
+    instruction_sum(params);
+    break;
+  case SUB:
+    instruction_sub(params);
+    break;
+  case JNZ:
+    instruction_jnz(params);
+    break;
+  case IO_GEN_SLEEP: {
+    instruction_io_gen_sleep(params, client_socket);
+    break;
+  }
+  default:
+    break;
+  }
+  log_debug(logger, "Valor de bx despues de la instruccion: %u", bx);
+  log_debug(logger, "Valor de eax despues de la instruccion: %u", eax);
 }
 
-void free_param(void *param) { free(param); };
+void free_param(void *p) {
+  param *parameter = (param *)p;
+  free(parameter);
+}
+
 void response_exec_process(packet_t *req, int client_socket) {
   process_t process = process_unpack(req);
 
   char *instruction = request_fetch_instruction(process);
 
-  while (instruction != NULL) {
-    t_list *params = list_create();
-    instruction_op operation = decode_instruction(instruction, params);
+  // while (instruction != NULL) {
+  t_list *params = list_create();
+  instruction_op operation = decode_instruction(instruction, params);
 
-    log_debug(logger, "OPERACION RECIBIDA : %s",
-              instruction_op_to_string(operation));
-
-    list_iterate(params, &imprimir_parametro);
-
-    list_destroy_and_destroy_elements(params, &free_param);
-    instruction = request_fetch_instruction(process);
-  }
+  exec_instruction(operation, params, client_socket);
+  log_debug(logger, "%u", eax);
+  list_destroy_and_destroy_elements(params, &free_param);
+  // instruction = request_fetch_instruction(process);
+  // }
 }
-
-void exec_instruction() {}
 
 void *server_dispatch(void *args) {
   int server_socket = connection_create_server(puerto_dispatch);

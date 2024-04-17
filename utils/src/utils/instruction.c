@@ -1,4 +1,5 @@
 #include "instruction.h"
+#include <stdint.h>
 
 char *instruction_op_to_string(instruction_op op) {
   switch (op) {
@@ -31,3 +32,43 @@ instruction_op instruction_op_from_string(char *op) {
     return IO_GEN_SLEEP;
   return UNKNOWN_INSTRUCTION;
 }
+
+void instruction_set(t_list *params) {
+  param *first_param = list_get(params, 0);
+  param *second_param = list_get(params, 1);
+  if (first_param->type == REGISTER) {
+    *(uint8_t *)first_param->value = *(long *)second_param->value;
+  }
+  *(uint32_t *)first_param->value = *(long *)second_param->value;
+}
+
+void instruction_sum(t_list *params) {
+  param *first_param = list_get(params, 0);
+  param *second_param = list_get(params, 1);
+
+  if (first_param->type == REGISTER) {
+    if (second_param->type == REGISTER) {
+      *(uint8_t *)first_param->value =
+          *(uint8_t *)first_param->value + *(uint8_t *)second_param->value;
+      return;
+    }
+    *(uint8_t *)first_param->value =
+        *(uint8_t *)first_param->value + *(uint32_t *)second_param->value;
+    return;
+  }
+
+  if (second_param->type == REGISTER) {
+    *(uint32_t *)first_param->value =
+        *(uint32_t *)first_param->value + *(uint8_t *)second_param->value;
+    return;
+  }
+  *(uint32_t *)first_param->value =
+      *(uint32_t *)first_param->value + *(uint32_t *)second_param->value;
+  return;
+}
+
+void instruction_sub(t_list *params) {}
+
+void instruction_jnz(t_list *params) {}
+
+void instruction_io_gen_sleep(t_list *params, int socket) {}
