@@ -87,11 +87,13 @@ void response_register_io(packet_t *request, int io_socket) {
   log_info(logger, "Se conecto una interfaz de tipo %s y nombre %s",
            tipo_interfaz, nombre);
 
+  // no deberia responder automaticamente (esto es solo una prueba y ejemplo de
+  // como responder a una io), deberia guardar el socket de la I/O para
+  // responderle cuando el cpu lo pida
   packet_t *res = packet_create(REGISTER_IO);
   packet_add_uint32(res, 2);
   packet_send(res, io_socket);
   packet_destroy(res);
-  // guardar el socket de la I/O para responderle cuando sea necesario
 }
 
 void *atender_cliente(void *args) {
