@@ -20,7 +20,7 @@ char *algoritmo_tlb;
 uint32_t pc = 0;
 
 void response_exec_process(packet_t *req, int client_socket) {
-  process_t process = process_unpack(req);
+  // process_t process = process_unpack(req);
   // ejecutar ciclo de instrucciones con process->path
 }
 
@@ -64,6 +64,8 @@ void *server_dispatch(void *args) {
 
   while (1) {
     int client_socket = connection_accept_client(server_socket);
+    if (client_socket == -1)
+      continue;
     packet_t *req = packet_recieve(client_socket);
     if (req == NULL)
       break;
