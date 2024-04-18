@@ -25,12 +25,12 @@ char *algoritmo_tlb;
 
 uint32_t pc = 0;
 
-uint8_t ax = 15;
-uint8_t bx = 12;
+uint8_t bx = 0;
+uint8_t ax = 0;
 uint8_t cx = 0;
 uint8_t dx = 0;
 
-uint32_t eax = 17;
+uint32_t eax = 0;
 uint32_t ebx = 0;
 uint32_t ecx = 0;
 uint32_t edx = 0;
@@ -171,9 +171,45 @@ void free_param(void *p) {
   free(parameter);
 }
 
+void reset_registers() {
+  pc = 0;
+  bx = 0;
+  ax = 0;
+  cx = 0;
+  dx = 0;
+  eax = 0;
+  ebx = 0;
+  ecx = 0;
+  edx = 0;
+}
+
+void load_registers(process_t *process) {
+  process->program_counter = pc;
+  process->registers.ax = ax;
+  process->registers.bx = bx;
+  process->registers.cx = cx;
+  process->registers.dx = dx;
+  process->registers.eax = eax;
+  process->registers.ebx = ebx;
+  process->registers.ecx = ecx;
+  process->registers.edx = edx;
+}
+
+void unload_registers(process_t process) {
+  pc = process.program_counter;
+  ax = process.registers.ax;
+  bx = process.registers.bx;
+  cx = process.registers.cx;
+  dx = process.registers.dx;
+  eax = process.registers.eax;
+  ebx = process.registers.ebx;
+  ecx = process.registers.ecx;
+  edx = process.registers.edx;
+}
+
 void response_exec_process(packet_t *req, int client_socket) {
   process_t process = process_unpack(req);
-  pc = process.program_counter;
+  unload_registers(process);
   char *instruction = request_fetch_instruction(process);
   while (instruction != NULL) {
     pc++;
@@ -211,8 +247,8 @@ void response_exec_process(packet_t *req, int client_socket) {
     }
     dealloc = 0;
   }
-  process.program_counter = pc;
-  pc = 0;
+  load_registers(&process);
+  reset_registers();
   packet_t *res = process_pack(process);
   packet_send(res, client_socket);
 }

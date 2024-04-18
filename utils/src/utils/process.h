@@ -3,20 +3,23 @@
 
 #include "packet.h"
 
-typedef enum {
-  NEW,
-  READY,
-  EXEC,
-  BLOCKED,
-  FINISHED,
-} process_status;
+typedef struct {
+  uint8_t ax;
+  uint8_t bx;
+  uint8_t cx;
+  uint8_t dx;
+  uint32_t eax;
+  uint32_t ebx;
+  uint32_t ecx;
+  uint32_t edx;
+} process_registers;
 
 typedef struct {
   uint32_t pid;
   char *path;
-  process_status status;
   uint32_t quantum;
   uint32_t program_counter;
+  process_registers registers;
 } process_t;
 
 /**
@@ -60,12 +63,6 @@ process_t process_unpack(packet_t *packet);
  */
 void process_print(process_t process);
 
-/**
- * @fn     process_status_to_string
- * @param  status Status to transform
- * @return String representation of the process status
- * @brief  Transforms a process status to string
- */
-char *process_status_to_string(process_status status);
+process_t *process_dup(process_t process);
 
 #endif

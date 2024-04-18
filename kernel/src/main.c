@@ -30,7 +30,7 @@ char **recursos;
 char **instancias_recursos;
 int grado_multiprogramacion;
 
-int next_pid = 1;
+int next_pid = 0;
 t_queue *new_queue;
 t_queue *ready_queue;
 process_t *exec = NULL;
@@ -217,12 +217,10 @@ void planificacion_fifo() {
   while (1) {
     int socket_cpu_dispatch =
         connection_create_client(ip_cpu, puerto_cpu_dispatch);
-    log_debug(logger, "Enviando proceso al socket %d", socket_cpu_dispatch);
-    fflush(stdout);
     if (socket_cpu_dispatch == -1) {
       log_error(logger,
                 "Imposible crear la conexion al servidor dispatch del cpu");
-      exit(5);
+      exit(4);
     }
 
     // semaforos... para iniciar y detener planificacion
@@ -347,7 +345,8 @@ int main(int argc, char *argv[]) {
   }
 
   dictionary_destroy_and_destroy_elements(io_dict, &free_io);
-  queue_destroy(new_queue);
+  queue_destroy_and_destroy_elements(new_queue, (void *)&process_destroy);
+  queue_destroy_and_destroy_elements(ready_queue, (void *)&process_destroy);
   queue_destroy(ready_queue);
   pthread_join(console_thread, NULL);
   connection_close(server_socket);
