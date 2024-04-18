@@ -25,7 +25,7 @@ char *algoritmo_tlb;
 
 uint32_t pc = 0;
 
-uint8_t ax = 0;
+uint8_t ax = 15;
 uint8_t bx = 12;
 uint8_t cx = 0;
 uint8_t dx = 0;
@@ -50,7 +50,7 @@ char *request_fetch_instruction(process_t process) {
     exit(5);
   }
   packet_t *req = packet_create(FETCH_INSTRUCTION);
-  packet_add_uint32(req, process.program_counter);
+  packet_add_uint32(req, pc);
   packet_add_string(req, process.path);
   packet_send(req, socket_memoria);
   packet_destroy(req);
@@ -173,10 +173,10 @@ void free_param(void *p) {
 
 void response_exec_process(packet_t *req, int client_socket) {
   process_t process = process_unpack(req);
-
+  pc = process.program_counter;
   char *instruction = request_fetch_instruction(process);
-
   while (instruction != NULL) {
+    pc++;
     t_list *params = list_create();
 
     instruction_op operation = decode_instruction(instruction, params);
@@ -186,7 +186,6 @@ void response_exec_process(packet_t *req, int client_socket) {
     fflush(stdout);
 
     exec_instruction(operation, params, client_socket);
-    process.program_counter++;
     if (instruction_is_blocking(operation) == 0) {
       packet_t *packet = packet_create(NON_BLOCKING_OP);
       packet_send(packet, client_socket);
@@ -202,6 +201,7 @@ void response_exec_process(packet_t *req, int client_socket) {
       log_debug(logger, "[DISPATCH] La ejecucion continua");
       fflush(stdout);
     }
+
     sem_post(&sem_check_interrupt);
     list_destroy_and_destroy_elements(params, &free_param);
     if (dealloc == 0) {
@@ -211,8 +211,10 @@ void response_exec_process(packet_t *req, int client_socket) {
     }
     dealloc = 0;
   }
-  // packet_t *res = process_pack(process);
-  // packet_send(res, client_socket);
+  process.program_counter = pc;
+  pc = 0;
+  packet_t *res = process_pack(process);
+  packet_send(res, client_socket);
 }
 
 void *server_dispatch(void *args) {
