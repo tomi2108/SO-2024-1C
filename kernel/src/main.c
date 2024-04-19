@@ -79,10 +79,9 @@ void print_process_queue(t_queue *queue, char *name) {
 status_code request_init_process(char *path) {
 
   int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
-  if (socket_memoria == -1) {
-    log_error(logger, "Imposible crear la conexion a la memoria");
-    exit(4);
-  }
+  if (socket_memoria == -1)
+    exit_client_connection_error(logger);
+
   packet_t *packet = packet_create(INIT_PROCESS);
   packet_add_string(packet, path);
   packet_send(packet, socket_memoria);
@@ -122,7 +121,7 @@ void *atender_cliente(void *args) {
   }
   packet_destroy(request);
   free(args);
-  return 0;
+  return EXIT_SUCCESS;
 }
 
 void exec_script(void) {}
@@ -165,11 +164,8 @@ void list_processes(void) {
 packet_t *request_cpu_interrupt(uint8_t interrupt, int socket_cpu_dispatch) {
   int socket_cpu_interrupt =
       connection_create_client(ip_cpu, puerto_cpu_interrupt);
-  if (socket_cpu_interrupt == -1) {
-    log_error(logger,
-              "Imposible crear la conexion al servidor dispatch del cpu");
-    exit(6);
-  }
+  if (socket_cpu_interrupt == -1)
+    exit_client_connection_error(logger);
 
   packet_t *req = packet_create(INTERRUPT);
   packet_add_uint8(req, interrupt);
@@ -221,11 +217,8 @@ void planificacion_fifo() {
   while (1) {
     int socket_cpu_dispatch =
         connection_create_client(ip_cpu, puerto_cpu_dispatch);
-    if (socket_cpu_dispatch == -1) {
-      log_error(logger,
-                "Imposible crear la conexion al servidor dispatch del cpu");
-      exit(4);
-    }
+    if (socket_cpu_dispatch == -1)
+      exit_client_connection_error(logger);
 
     // semaforos... para iniciar y detener planificacion
     // if (exec == NULL && !queue_is_empty(ready_queue)) {
@@ -255,7 +248,6 @@ void *consola_interactiva(void *args) {
       printf("| %-40s |\n", "5: Iniciar planificacion");
       printf("| %-40s |\n", "6: Cambiar grado de multiprogramacion");
       printf("| %-40s |\n", "7: Listar estados de procesos");
-      printf("| %-40s |\n", "8: Salir");
       printf("+------------------------------------------+\n");
     }
     input = getchar();
@@ -285,25 +277,22 @@ void *consola_interactiva(void *args) {
       list_processes();
       break;
     default:
+      printf("Invalid input\n");
       break;
     }
 
-  } while (input != '8');
-  return 0;
+  } while (1);
+  return EXIT_SUCCESS;
 }
 
 int main(int argc, char *argv[]) {
   logger = log_create("kernel.log", "KERNEL", 1, LOG_LEVEL_DEBUG);
-  if (argc < 2) {
-    log_error(logger, "Especificar archivo de configuracion");
-    return 1;
-  }
+  if (argc < 2)
+    exit_not_enough_arguments_error(logger);
 
   config = config_create(argv[1]);
-  if (config == NULL) {
-    log_error(logger, "Error al crear la configuracion");
-    return 2;
-  }
+  if (config == NULL)
+    exit_enoent_erorr(logger);
 
   puerto_escucha = config_get_string_value(config, "PUERTO_ESCUCHA");
 
@@ -330,10 +319,8 @@ int main(int argc, char *argv[]) {
   io_dict = dictionary_create();
 
   int server_socket = connection_create_server(puerto_escucha);
-  if (server_socket == -1) {
-    log_error(logger, "Imposible levantar servidor");
-    return 3;
-  }
+  if (server_socket == -1)
+    exit_server_connection_error(logger);
   log_info(logger, "Servidor levantado en el puerto %s", puerto_escucha);
 
   pthread_t console_thread;
@@ -355,5 +342,5 @@ int main(int argc, char *argv[]) {
   connection_close(server_socket);
   log_destroy(logger);
   config_destroy(config);
-  return 0;
+  return EXIT_SUCCESS;
 }

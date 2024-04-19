@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <sys/socket.h>
 #include <utils/connection.h>
+#include <utils/exit.h>
 #include <utils/packet.h>
 #include <utils/status.h>
 
@@ -39,10 +40,8 @@ void interfaz_generica(long tiempo_espera) {
 void interfaz_stdout(uint32_t direccion_fisica) {
 
   int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
-  if (socket_memoria == -1) {
-    log_error(logger, "Imposible conectarse con la memoria");
-    exit(4);
-  }
+  if (socket_memoria == -1)
+    exit_client_connection_error(logger);
 
   packet_t *req = packet_create(READ_DIR);
   packet_add_uint32(req, direccion_fisica);
@@ -67,10 +66,8 @@ void interfaz_stdout(uint32_t direccion_fisica) {
 void interfaz_stdin(uint32_t direccion_fisica) {
 
   int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
-  if (socket_memoria == -1) {
-    log_error(logger, "Imposible conectarse con la memoria");
-    exit(4);
-  }
+  if (socket_memoria == -1)
+    exit_client_connection_error(logger);
 
   char *input = ""; // TODO: sanitizar el input de alguna forma... restringir
                     // longitud quizas ?
@@ -99,10 +96,8 @@ void interfaz_stdin(uint32_t direccion_fisica) {
 void interfaz_dialfs(void) {}
 
 void request_register_io(int client_socket) {
-  if (client_socket == -1) {
-    log_error(logger, "Imposible crear la conexion al kernel");
-    exit(5);
-  }
+  if (client_socket == -1)
+    exit_client_connection_error(logger);
 
   packet_t *request = packet_create(REGISTER_IO);
 
@@ -122,24 +117,16 @@ int main(int argc, char *argv[]) {
   logger =
       log_create("entradasalida.log", "ENTRADA/SALIDA", 1, LOG_LEVEL_DEBUG);
 
-  if (argc < 3) {
-    log_error(logger, "Especificar archivo de configuracion y nombre de la "
-                      "interfaz en ese orden");
-    return 1;
-  }
+  if (argc < 3)
+    exit_not_enough_arguments_error(logger);
 
   config = config_create(argv[1]);
-  if (config == NULL) {
-    log_error(logger, "Error al crear la configuarcion");
-    return 2;
-  }
+  if (config == NULL)
+    exit_enoent_erorr(logger);
 
   io_type = config_get_string_value(config, "TIPO_INTERFAZ");
-  if (!is_io_type_supported()) {
-    log_error(logger, "Interfaz de tipo %s no soportada", io_type);
-    return 3;
-  }
-
+  if (!is_io_type_supported())
+    exit_config_field_error(logger, "TIPO_INTERFAZ");
   // sanitizar input...?
   name = strdup(argv[2]);
 
@@ -179,5 +166,5 @@ int main(int argc, char *argv[]) {
   connection_close(socket_kernel);
   log_destroy(logger);
   config_destroy(config);
-  return 0;
+  return EXIT_SUCCESS;
 }

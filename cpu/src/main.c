@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <utils/connection.h>
+#include <utils/exit.h>
 #include <utils/instruction.h>
 #include <utils/packet.h>
 #include <utils/process.h>
@@ -46,10 +47,9 @@ int dealloc = 0;
 
 char *request_fetch_instruction(process_t process) {
   int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
-  if (socket_memoria == -1) {
-    log_error(logger, "Imposible conectarse con la memoria");
-    exit(5);
-  }
+  if (socket_memoria == -1)
+    exit_client_connection_error(logger);
+
   packet_t *req = packet_create(FETCH_INSTRUCTION);
   packet_add_uint32(req, pc);
   packet_add_string(req, process.path);
@@ -270,10 +270,8 @@ void response_exec_process(packet_t *req, int client_socket) {
 
 void *server_dispatch(void *args) {
   int server_socket = connection_create_server(puerto_dispatch);
-  if (server_socket == -1) {
-    log_error(logger, "Imposible crear el servidor dispatch");
-    exit(3);
-  }
+  if (server_socket == -1)
+    exit_server_connection_error(logger);
 
   log_info(logger, "Servidor dispatch levantado en el puerto %s",
            puerto_dispatch);
@@ -312,10 +310,8 @@ void check_interrupt(packet_t *req) {
 void *server_interrupt(void *args) {
   int server_socket = connection_create_server(puerto_interrupt);
 
-  if (server_socket == -1) {
-    log_error(logger, "Imposible crear el servidor interrupt");
-    exit(4);
-  }
+  if (server_socket == -1)
+    exit_server_connection_error(logger);
 
   log_info(logger, "Servidor interrupt levantado en el puerto %s",
            puerto_interrupt);
@@ -343,16 +339,12 @@ int main(int argc, char *argv[]) {
 
   logger = log_create("cpu.log", "CPU", 1, LOG_LEVEL_DEBUG);
 
-  if (argc < 2) {
-    log_error(logger, "Especificar archivo de configuracion");
-    return 1;
-  }
+  if (argc < 2)
+    exit_not_enough_arguments_error(logger);
 
   config = config_create(argv[1]);
-  if (config == NULL) {
-    log_error(logger, "Error al crear la configuracion");
-    return 2;
-  }
+  if (config == NULL)
+    exit_enoent_erorr(logger);
 
   puerto_dispatch = config_get_string_value(config, "PUERTO_ESCUCHA_DISPATCH");
   puerto_interrupt =
@@ -378,5 +370,5 @@ int main(int argc, char *argv[]) {
   sem_destroy(&sem_process_interrupt);
   log_destroy(logger);
   config_destroy(config);
-  return 0;
+  return EXIT_SUCCESS;
 }

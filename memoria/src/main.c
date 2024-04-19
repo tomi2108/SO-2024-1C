@@ -10,6 +10,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <utils/connection.h>
+#include <utils/exit.h>
 #include <utils/packet.h>
 #include <utils/status.h>
 
@@ -26,6 +27,7 @@ int retardo_respuesta;
 char *path_instrucciones;
 
 char *get_full_path(char *relative_path) {
+
   char *full_path = malloc(
       sizeof(char) * (1 + strlen(relative_path) + strlen(path_instrucciones)));
   memset(full_path, 0, 1 + strlen(relative_path) + strlen(path_instrucciones));
@@ -42,10 +44,8 @@ char *fetch_instruction(uint32_t program_counter, char *instruction_path) {
   FILE *file = fopen(full_path, "r");
   free(full_path);
 
-  if (file == NULL) {
-    log_error(logger, "No se pudo abrir el archivo %s", instruction_path);
-    exit(4);
-  }
+  if (file == NULL)
+    exit_enoent_erorr(logger);
 
   char *line = malloc(FILE_NAME_MAX_LENGTH * sizeof(char));
   int i = 0;
@@ -122,22 +122,18 @@ void *atender_cliente(void *args) {
   packet_destroy(req);
   connection_close(client_socket);
   free(args);
-  return 0;
+  return EXIT_SUCCESS;
 }
 
 int main(int argc, char *argv[]) {
   logger = log_create("memoria.log", "MEMORIA", 1, LOG_LEVEL_DEBUG);
 
-  if (argc < 2) {
-    log_error(logger, "Especificar archivo de configuracion");
-    return 1;
-  }
+  if (argc < 2)
+    exit_not_enough_arguments_error(logger);
 
   config = config_create(argv[1]);
-  if (config == NULL) {
-    log_error(logger, "Error al crear la configuracion");
-    return 2;
-  }
+  if (config == NULL)
+    exit_enoent_erorr(logger);
 
   tam_memoria = config_get_int_value(config, "TAM_MEMORIA");
   tam_pagina = config_get_int_value(config, "TAM_PAGINA");
@@ -147,10 +143,8 @@ int main(int argc, char *argv[]) {
   puerto_escucha = config_get_string_value(config, "PUERTO_ESCUCHA");
 
   int server_socket = connection_create_server(puerto_escucha);
-  if (server_socket == -1) {
-    log_error(logger, "Imposible levantar servidor");
-    return 3;
-  }
+  if (server_socket == -1)
+    exit_server_connection_error(logger);
   log_info(logger, "Servidor levantado en el puerto %s", puerto_escucha);
 
   while (1) {
@@ -167,5 +161,5 @@ int main(int argc, char *argv[]) {
   log_destroy(logger);
   connection_close(server_socket);
   config_destroy(config);
-  return 0;
+  return EXIT_SUCCESS;
 }
