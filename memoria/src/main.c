@@ -13,6 +13,8 @@
 #include <utils/packet.h>
 #include <utils/status.h>
 
+#define FILE_NAME_MAX_LENGTH 60
+
 t_log *logger;
 t_config *config;
 
@@ -23,21 +25,46 @@ int tam_pagina;
 int retardo_respuesta;
 char *path_instrucciones;
 
+char *get_full_path(char *relative_path) {
+  char *full_path = malloc(
+      sizeof(char) * (1 + strlen(relative_path) + strlen(path_instrucciones)));
+  memset(full_path, 0, 1 + strlen(relative_path) + strlen(path_instrucciones));
+  strcat(full_path, path_instrucciones);
+  strcat(full_path, relative_path);
+  return full_path;
+}
+
 char *fetch_instruction(uint32_t program_counter, char *instruction_path) {
-  sleep(4);
-  int seed = rand();
-  if (seed % 2 == 0)
-    return "SUM AX BX";
-  // mock devolver al cpu siempre la misma instruccion
-  return "IO_GEN_SLEEP messi 10";
+
+  sleep(1);
+  char *full_path = get_full_path(instruction_path);
+
+  FILE *file = fopen(full_path, "r");
+  free(full_path);
+
+  if (file == NULL) {
+    log_error(logger, "No se pudo abrir el archivo %s", instruction_path);
+    exit(4);
+  }
+
+  char *line = malloc(FILE_NAME_MAX_LENGTH * sizeof(char));
+  int i = 0;
+  while (fgets(line, FILE_NAME_MAX_LENGTH, file)) {
+    if (i == program_counter) {
+      fclose(file);
+      return line;
+    }
+    i++;
+  }
+  free(line);
+  fclose(file);
+  return NULL;
 }
 
 uint8_t path_exists(char *path) {
-  char full_path[1 + strlen(path) + strlen(path_instrucciones)];
-  memset(full_path, 0, 1 + strlen(path) + strlen(path_instrucciones));
-  strcat(full_path, path_instrucciones);
-  strcat(full_path, path);
+  char *full_path = get_full_path(path);
   int exists = access(full_path, F_OK);
+  free(full_path);
   return exists == 0;
 }
 
@@ -45,7 +72,7 @@ void response_init_process(packet_t *request, int client_socket) {
   char *path = packet_read_string(request);
   uint8_t exists = path_exists(path);
   uint8_t status_code = exists ? OK : NOT_FOUND;
-  packet_t *res = status_create_packet(status_code);
+  packet_t *res = status_pack(status_code);
   packet_send(res, client_socket);
   packet_destroy(res);
 }
@@ -55,11 +82,19 @@ void response_fetch_instruction(packet_t *request, int client_socket) {
   char *instruction_path = packet_read_string(request);
 
   char *instruction = fetch_instruction(program_counter, instruction_path);
-
-  packet_t *res = packet_create(INSTRUCTION);
-  packet_add_string(res, instruction);
-  packet_send(res, client_socket);
-  packet_destroy(res);
+  log_debug(logger, "%s", instruction);
+  if (instruction != NULL) {
+    packet_t *res = packet_create(INSTRUCTION);
+    packet_add_string(res, instruction);
+    packet_send(res, client_socket);
+    free(instruction);
+    packet_destroy(res);
+  } else {
+    log_debug(logger, "No hay mas instrucciones");
+    packet_t *res = status_pack(END_OF_FILE);
+    packet_send(res, client_socket);
+    packet_destroy(res);
+  }
 }
 
 void response_read_dir(packet_t *request, int client_socket) {}
@@ -91,7 +126,6 @@ void *atender_cliente(void *args) {
 }
 
 int main(int argc, char *argv[]) {
-  srand(time(NULL));
   logger = log_create("memoria.log", "MEMORIA", 1, LOG_LEVEL_DEBUG);
 
   if (argc < 2) {

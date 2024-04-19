@@ -10,6 +10,7 @@
 #include <utils/instruction.h>
 #include <utils/packet.h>
 #include <utils/process.h>
+#include <utils/status.h>
 
 t_log *logger;
 t_config *config;
@@ -57,10 +58,20 @@ char *request_fetch_instruction(process_t process) {
 
   packet_t *res = packet_recieve(socket_memoria);
   char *instruction;
-  if (res->type == INSTRUCTION) {
+  switch (res->type) {
+  case INSTRUCTION:
     instruction = packet_read_string(res);
-  } else
-    instruction = NULL;
+    break;
+  case STATUS: {
+    status_code status = status_unpack(res);
+    if (status == END_OF_FILE) {
+      instruction = NULL;
+    }
+    break;
+  }
+  default:
+    break;
+  }
   packet_destroy(res);
   connection_close(socket_memoria);
   return instruction;
@@ -208,21 +219,22 @@ void unload_registers(process_t process) {
 }
 
 void response_exec_process(packet_t *req, int client_socket) {
+  int interrupted = 0;
   process_t process = process_unpack(req);
   unload_registers(process);
   char *instruction = request_fetch_instruction(process);
-  while (instruction != NULL) {
+  while (instruction != NULL && !interrupted) {
     pc++;
     t_list *params = list_create();
 
     instruction_op operation = decode_instruction(instruction, params);
 
-    log_debug(logger, "[DISPATCH] Ejecutando instruccion %s",
+    log_debug(logger, "Ejecutando instruccion %s",
               instruction_op_to_string(operation));
     fflush(stdout);
 
     exec_instruction(operation, params, client_socket);
-    if (instruction_is_blocking(operation) == 0) {
+    if (!instruction_is_blocking(operation)) {
       packet_t *packet = packet_create(NON_BLOCKING_OP);
       packet_send(packet, client_socket);
       packet_destroy(packet);
@@ -230,11 +242,11 @@ void response_exec_process(packet_t *req, int client_socket) {
 
     sem_wait(&sem_process_interrupt);
     if (dealloc == 1) {
-      log_debug(logger, "[DISPATCH] Desalojando proceso");
+      log_debug(logger, "Desalojando proceso");
       fflush(stdout);
-      instruction = NULL;
+      interrupted = 1;
     } else {
-      log_debug(logger, "[DISPATCH] La ejecucion continua");
+      log_debug(logger, "La ejecucion continua");
       fflush(stdout);
     }
 
@@ -242,15 +254,20 @@ void response_exec_process(packet_t *req, int client_socket) {
     list_destroy_and_destroy_elements(params, &free_param);
     if (dealloc == 0) {
       instruction = request_fetch_instruction(process);
-      log_debug(logger, "[DISPATCH] Siguiente instruccion");
+      log_debug(logger, "Siguiente instruccion");
       fflush(stdout);
     }
-    dealloc = 0;
   }
+  dealloc = 0;
   load_registers(&process);
   reset_registers();
   packet_t *res = process_pack(process);
+  status_code status_code = instruction == NULL ? END_OF_FILE : OK;
+  packet_t *status = status_pack(status_code);
   packet_send(res, client_socket);
+  packet_send(status, client_socket);
+  packet_destroy(res);
+  packet_destroy(status);
 }
 
 void *server_dispatch(void *args) {
@@ -264,7 +281,7 @@ void *server_dispatch(void *args) {
            puerto_dispatch);
 
   while (1) {
-    log_debug(logger, "[DISPATCH] Esperando un proceso para ejecutar");
+    log_debug(logger, "Esperando un proceso para ejecutar");
     fflush(stdout);
     int client_socket = connection_accept_client(server_socket);
     packet_t *req = packet_recieve(client_socket);
@@ -278,7 +295,6 @@ void *server_dispatch(void *args) {
     default:
       break;
     }
-
     packet_destroy(req);
     connection_close(client_socket);
   }

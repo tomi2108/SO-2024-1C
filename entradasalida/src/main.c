@@ -83,7 +83,7 @@ void interfaz_stdin(uint32_t direccion_fisica) {
 
   packet_t *res = packet_recieve(socket_memoria);
   connection_close(socket_memoria);
-  uint8_t status = status_read_packet(res);
+  uint8_t status = status_unpack(res);
   packet_destroy(res);
 
   if (status != OK)

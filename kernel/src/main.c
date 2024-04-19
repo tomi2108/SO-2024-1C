@@ -12,6 +12,8 @@
 #include <utils/process.h>
 #include <utils/status.h>
 
+#define FILE_NAME_MAX_LENGTH 60
+
 t_log *logger;
 t_config *config;
 
@@ -87,7 +89,7 @@ status_code request_init_process(char *path) {
   packet_destroy(packet);
 
   packet_t *res = packet_recieve(socket_memoria);
-  uint8_t status_code = status_read_packet(res);
+  uint8_t status_code = status_unpack(res);
   packet_destroy(res);
   connection_close(socket_memoria);
   return status_code;
@@ -128,13 +130,13 @@ void exec_script(void) {}
 void init_process(void) {
   printf("Ingresar path al archivo de instrucciones\n");
   // a chequear
-  char path[20];
+  char path[FILE_NAME_MAX_LENGTH];
   int c;
   while ((c = getchar()) != '\n' && c != EOF) {
   }
 
-  fgets(path, 19, stdin);
-  if (strlen(path) < 21) {
+  fgets(path, FILE_NAME_MAX_LENGTH - 1, stdin);
+  if (strlen(path) < FILE_NAME_MAX_LENGTH + 1) {
     path[strlen(path) - 1] = '\0';
   }
   status_code res_status = request_init_process(path);
@@ -207,6 +209,8 @@ packet_t *wait_process_exec(int socket_cpu_dispatch) {
   case NON_BLOCKING_OP: {
     return request_cpu_interrupt(0, socket_cpu_dispatch);
   }
+  case PROCESS:
+    return res;
   default:
     return NULL;
   }
@@ -289,7 +293,6 @@ void *consola_interactiva(void *args) {
 }
 
 int main(int argc, char *argv[]) {
-
   logger = log_create("kernel.log", "KERNEL", 1, LOG_LEVEL_DEBUG);
   if (argc < 2) {
     log_error(logger, "Especificar archivo de configuracion");
