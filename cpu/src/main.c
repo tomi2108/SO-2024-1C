@@ -263,11 +263,9 @@ void response_exec_process(packet_t *req, int client_socket) {
   reset_registers();
   packet_t *res = process_pack(process);
   status_code status_code = instruction == NULL ? END_OF_FILE : OK;
-  packet_t *status = status_pack(status_code);
+  packet_add(res, &status_code, sizeof(status_code));
   packet_send(res, client_socket);
-  packet_send(status, client_socket);
   packet_destroy(res);
-  packet_destroy(status);
 }
 
 void *server_dispatch(void *args) {
