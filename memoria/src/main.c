@@ -37,8 +37,6 @@ char *get_full_path(char *relative_path) {
 }
 
 char *fetch_instruction(uint32_t program_counter, char *instruction_path) {
-
-  sleep(1);
   char *full_path = get_full_path(instruction_path);
 
   FILE *file = fopen(full_path, "r");
@@ -103,6 +101,7 @@ void response_write_dir(packet_t *request, int client_socket) {}
 void *atender_cliente(void *args) {
   int client_socket = *(int *)args;
   packet_t *req = packet_recieve(client_socket);
+  usleep(retardo_respuesta * 1000);
   switch (req->type) {
   case INIT_PROCESS:
     response_init_process(req, client_socket);
