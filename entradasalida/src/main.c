@@ -26,10 +26,12 @@ char *path_base_dialfs;
 int block_size;
 int block_count;
 
-void interfaz_generica(long tiempo_espera) {
+void interfaz_generica(packet_t *res) {
+  long tiempo_espera;
+  packet_read(res, &tiempo_espera, sizeof(long));
   log_info(logger, "Esperando %ld segundos",
            (tiempo_espera * tiempo_unidad_trabajo_ms) / 1000);
-  sleep((tiempo_unidad_trabajo_ms * tiempo_espera) / 1000);
+  usleep(tiempo_unidad_trabajo_ms * tiempo_espera * 1000);
 }
 
 // TODO: se asume que la direccion fisica sera uint32_t verificar cuando se
@@ -37,8 +39,9 @@ void interfaz_generica(long tiempo_espera) {
 // intenta leer la direccion con un codigo_op correspondiente se asume que la
 // memoria responde con uint32 (el contenido de la direccion) verificar cuando
 // se realize el modulo memoria
-void interfaz_stdout(uint32_t direccion_fisica) {
-
+void interfaz_stdout(packet_t *res) {
+  usleep(tiempo_unidad_trabajo_ms * 1000);
+  uint32_t direccion_fisica = packet_read_uint32(res);
   int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
   if (socket_memoria == -1)
     exit_client_connection_error(logger);
@@ -48,12 +51,11 @@ void interfaz_stdout(uint32_t direccion_fisica) {
   packet_send(req, socket_memoria);
   packet_destroy(req);
 
-  packet_t *res = packet_recieve(socket_memoria);
+  packet_t *res_memoria = packet_recieve(socket_memoria);
   connection_close(socket_memoria);
-  uint32_t memory_content = packet_read_uint32(res);
-  packet_destroy(res);
+  uint32_t memory_content = packet_read_uint32(res_memoria);
+  packet_destroy(res_memoria);
 
-  sleep(tiempo_unidad_trabajo_ms);
   log_info(logger, "%u", memory_content);
 }
 
@@ -63,8 +65,8 @@ void interfaz_stdout(uint32_t direccion_fisica) {
 // la memoria responde con uint32 (codigo OK or ERR ??) verificar cuando se
 // realize el modulo memoria tambien se asume que la memoria puede procesar la
 // escritura de un char*
-void interfaz_stdin(uint32_t direccion_fisica) {
-
+void interfaz_stdin(packet_t *res) {
+  uint32_t direccion_fisica = packet_read_uint32(res);
   int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
   if (socket_memoria == -1)
     exit_client_connection_error(logger);
@@ -78,9 +80,9 @@ void interfaz_stdin(uint32_t direccion_fisica) {
   packet_send(req, socket_memoria);
   packet_destroy(req);
 
-  packet_t *res = packet_recieve(socket_memoria);
+  packet_t *res_memoria = packet_recieve(socket_memoria);
   connection_close(socket_memoria);
-  uint8_t status = status_unpack(res);
+  uint8_t status = status_unpack(res_memoria);
   packet_destroy(res);
 
   if (status != OK)
@@ -93,7 +95,7 @@ void interfaz_stdin(uint32_t direccion_fisica) {
              direccion_fisica);
 }
 
-void interfaz_dialfs(void) {}
+void interfaz_dialfs(packet_t *res) {}
 
 void request_register_io(int client_socket) {
   if (client_socket == -1)
@@ -127,7 +129,7 @@ int main(int argc, char *argv[]) {
   io_type = config_get_string_value(config, "TIPO_INTERFAZ");
   if (!is_io_type_supported())
     exit_config_field_error(logger, "TIPO_INTERFAZ");
-  // sanitizar input...?
+
   name = strdup(argv[2]);
 
   ip_kernel = config_get_string_value(config, "IP_KERNEL");
@@ -147,20 +149,17 @@ int main(int argc, char *argv[]) {
   request_register_io(socket_kernel);
 
   while (1) {
-    log_debug(logger, "Esperando instruccion del kernel");
+    log_debug(logger, "Esperando instruccion");
     packet_t *res = packet_recieve(socket_kernel);
     if (strcmp(io_type, "generica") == 0) {
-      long tiempo_espera;
-      packet_read(res, &tiempo_espera, sizeof(long));
-      interfaz_generica(tiempo_espera);
+      interfaz_generica(res);
     } else if (strcmp(io_type, "stdin")) {
-      uint32_t direccion = packet_read_uint32(res);
-      interfaz_stdin(direccion);
+      interfaz_stdin(res);
     } else if (strcmp(io_type, "stdout")) {
-      uint32_t direccion = packet_read_uint32(res);
-      interfaz_stdout(direccion);
+      interfaz_stdout(res);
     } else if (strcmp(io_type, "dialfs"))
-      interfaz_dialfs();
+      interfaz_dialfs(res);
+    packet_destroy(res);
   }
 
   connection_close(socket_kernel);
