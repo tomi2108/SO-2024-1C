@@ -13,20 +13,61 @@
 #define EXIT_ENOENT 6
 #define EXIT_CONFIG_FIELD_ERROR 7
 
+/**
+ * @fn    exit_success
+ * @param logger Logger to log the success message
+ * @brief Exits the thread with succes return code
+ */
 void exit_success(t_log *logger);
 
+/**
+ * @fn    exit_server_connection_error
+ * @param logger Logger to log the error message
+ * @brief Exits the thread with server connection error code
+ */
 void exit_server_connection_error(t_log *logger);
 
+/**
+ * @fn    exit_client_connection_error
+ * @param logger Logger to log the error message
+ * @brief Exits the thread with client connection error code
+ */
 void exit_client_connection_error(t_log *logger);
 
+/**
+ * @fn    exit_malformatted_config_error
+ * @param logger Logger to log the error message
+ * @brief Exits the thread with malformatted config error code
+ */
 void exit_malformatted_config_error(t_log *logger);
 
+/**
+ * @fn    exit_not_enough_arguments_error
+ * @param logger Logger to log the error message
+ * @brief Exits the thread with not enough arguments error code
+ */
 void exit_not_enough_arguments_error(t_log *logger);
 
+/**
+ * @fn    exit_malformatted_arguments_error
+ * @param logger Logger to log the error message
+ * @brief Exits the thread with not enough arguments error code
+ */
 void exit_malformatted_arguments_error(t_log *logger);
 
+/**
+ * @fn    exit_enoent_error
+ * @param logger Logger to log the error message
+ * @brief Exits the thread with enoent error code
+ */
 void exit_enoent_erorr(t_log *logger);
 
+/**
+ * @fn    exit_enoent_error
+ * @param logger Logger to log the error message
+ * @param field  Field of the config where error was found
+ * @brief Exits the thread with config field error code
+ */
 void exit_config_field_error(t_log *logger, char *field);
 
 #endif

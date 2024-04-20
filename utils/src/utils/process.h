@@ -24,8 +24,8 @@ typedef struct {
 
 /**
  * @fn     process_create
- * @param  pid Process id
- * @param  path Instruction path
+ * @param  pid     Process id
+ * @param  path    Instruction path
  * @param  quantum Initial quantum
  * @return Created process
  * @brief  Creates a process with the given parameters
@@ -63,6 +63,13 @@ process_t process_unpack(packet_t *packet);
  */
 void process_print(process_t process);
 
+/**
+ * @fn    process_dup
+ * @param process Process to duplicate
+ * @return A process created with process_create, duplicated from the given
+ * process
+ * @brief Duplicates a process
+ */
 process_t *process_dup(process_t process);
 
 #endif

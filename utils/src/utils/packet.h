@@ -139,4 +139,5 @@ packet_t *packet_recieve(int socket);
  * @brief  Creates a new packet duplicated from the given packet.
  */
 packet_t *packet_dup(packet_t *packet);
+
 #endif

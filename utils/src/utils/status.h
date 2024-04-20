@@ -21,4 +21,5 @@ status_code status_unpack(packet_t *packet);
  * @brief  Creates a packet of type STATUS with the given status_code
  */
 packet_t *status_pack(status_code status_code);
+
 #endif

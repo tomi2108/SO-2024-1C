@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <utils/connection.h>
+#include <utils/exit.h>
 #include <utils/packet.h>
 #include <utils/process.h>
 #include <utils/status.h>
