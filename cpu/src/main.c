@@ -280,6 +280,8 @@ void *server_dispatch(void *args) {
     log_debug(logger, "Esperando un proceso para ejecutar");
     fflush(stdout);
     int client_socket = connection_accept_client(server_socket);
+    if (client_socket == -1)
+      continue;
     packet_t *req = packet_recieve(client_socket);
 
     if (req == NULL)

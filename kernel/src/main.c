@@ -129,7 +129,6 @@ void exec_script(void) {}
 
 void init_process(void) {
   printf("Ingresar path al archivo de instrucciones\n");
-  // a chequear
   char path[FILE_NAME_MAX_LENGTH];
   int c;
   while ((c = getchar()) != '\n' && c != EOF) {
@@ -159,7 +158,7 @@ void change_multiprogramming(void) {}
 void list_processes(void) {
   print_process_queue(new_queue, "NEW");
   print_process_queue(ready_queue, "READY");
-  // imprimir el resto de procsos
+  // imprimir el resto de procesos
 };
 
 packet_t *request_cpu_interrupt(uint8_t interrupt, int socket_cpu_dispatch) {
@@ -221,9 +220,9 @@ void planificacion_fifo() {
     if (socket_cpu_dispatch == -1)
       exit_client_connection_error(logger);
 
+    process_t process_to_exec = {1, "/process1", 2, 0};
     // semaforos... para iniciar y detener planificacion
     // if (exec == NULL && !queue_is_empty(ready_queue)) {
-    process_t process_to_exec = {1, "/process1", EXEC, 2, 0};
     // process_t *process_to_exec = queue_pop(ready_queue);
     // exec = process_to_exec;
     packet_t *request = process_pack(process_to_exec);
@@ -266,7 +265,6 @@ void *consola_interactiva(void *args) {
       stop_scheduler();
       break;
     case '5': {
-      // mock enviar proceso al cpu
       planificacion_fifo();
       // start_scheduler();
       break;
@@ -328,6 +326,8 @@ int main(int argc, char *argv[]) {
   pthread_create(&console_thread, NULL, &consola_interactiva, NULL);
   while (1) {
     int client_socket = connection_accept_client(server_socket);
+    if (client_socket == -1)
+      continue;
     pthread_t thread;
     int *arg = malloc(sizeof(int));
     *arg = client_socket;
