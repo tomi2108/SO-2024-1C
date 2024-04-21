@@ -2,6 +2,7 @@
 #define UTILS_INSTRUCTION_H_
 
 #include "packet.h"
+#include "status.h"
 #include <commons/collections/list.h>
 #include <stdint.h>
 #include <string.h>
@@ -11,11 +12,17 @@ typedef enum {
   SUM,
   SUB,
   JNZ,
+  MOV_IN,
+  MOV_OUT,
+  RESIZE,
+  COPY_STRING,
   IO_GEN_SLEEP,
+  IO_STDIN_READ,
+  IO_STDOUT_WRITE,
   UNKNOWN_INSTRUCTION
 } instruction_op;
 
-typedef enum { REGISTER, EXTENDED_REGISTER, NUMBER, STRING } param_type;
+typedef enum { REGISTER, NUMBER, STRING } param_type;
 
 typedef struct {
   param_type type;
@@ -83,4 +90,21 @@ void instruction_jnz(t_list *params, uint32_t *pc);
  * @brief  IO_GEN_SLEEP instruction implementation
  */
 void instruction_io_gen_sleep(t_list *params, int socket);
+
+void instruction_mov_in(t_list *params, int client_socket,
+                        uint32_t (*translate_addres)(uint32_t));
+
+void instruction_mov_out(t_list *params, int client_socket,
+                         uint32_t (*translate_addres)(uint32_t));
+
+int instruction_resize(t_list *params, int client_socket, uint32_t pid);
+
+void instruction_copy_string(t_list *params, uint32_t *si, uint32_t *di);
+
+void instruction_io_stdin(t_list *params, int socket,
+                          uint32_t (*translate_addres)(uint32_t));
+
+void instruction_io_stdout(t_list *params, int socket,
+                           uint32_t (*translate_addres)(uint32_t));
+
 #endif

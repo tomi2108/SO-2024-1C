@@ -27,8 +27,8 @@ char *algoritmo_tlb;
 
 uint32_t pc = 0;
 
-uint8_t bx = 0;
 uint8_t ax = 0;
+uint8_t bx = 0;
 uint8_t cx = 0;
 uint8_t dx = 0;
 
@@ -44,6 +44,8 @@ sem_t sem_check_interrupt;
 sem_t sem_process_interrupt;
 
 int dealloc = 0;
+
+uint32_t translate_addres(uint32_t logical_addres) { return 0; }
 
 char *request_fetch_instruction(process_t process) {
   int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
@@ -125,7 +127,7 @@ instruction_op decode_instruction(char *instruction, t_list *params) {
     uint32_t *extended_register = is_extended_register(token);
     if (extended_register != NULL) {
       param *p = malloc(sizeof(param));
-      p->type = EXTENDED_REGISTER;
+      p->type = REGISTER;
       p->value = extended_register;
       list_add(params, p);
       token = strtok(NULL, " ");
@@ -154,7 +156,8 @@ instruction_op decode_instruction(char *instruction, t_list *params) {
   return op;
 }
 
-void exec_instruction(instruction_op op, t_list *params, int client_socket) {
+void exec_instruction(instruction_op op, t_list *params, int client_socket,
+                      int pid) {
   switch (op) {
   case SET:
     instruction_set(params);
@@ -168,10 +171,33 @@ void exec_instruction(instruction_op op, t_list *params, int client_socket) {
   case JNZ:
     instruction_jnz(params, &pc);
     break;
-  case IO_GEN_SLEEP: {
+  case IO_GEN_SLEEP:
     instruction_io_gen_sleep(params, client_socket);
     break;
+  case MOV_IN: {
+    int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
+    instruction_mov_in(params, socket_memoria, &translate_addres);
+    connection_close(socket_memoria);
+    break;
   }
+  case MOV_OUT: {
+    int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
+    instruction_mov_out(params, socket_memoria, &translate_addres);
+    connection_close(socket_memoria);
+    break;
+  }
+  case RESIZE: {
+    int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
+    instruction_resize(params, socket_memoria, pid);
+    connection_close(socket_memoria);
+    break;
+  }
+  case IO_STDIN_READ:
+    instruction_io_stdin(params, client_socket, &translate_addres);
+    break;
+  case IO_STDOUT_WRITE:
+    instruction_io_stdout(params, client_socket, &translate_addres);
+    break;
   default:
     break;
   }
@@ -229,41 +255,27 @@ void response_exec_process(packet_t *req, int client_socket) {
 
     instruction_op operation = decode_instruction(instruction, params);
 
-    log_debug(logger, "Ejecutando instruccion %s",
-              instruction_op_to_string(operation));
-    fflush(stdout);
-
-    exec_instruction(operation, params, client_socket);
+    exec_instruction(operation, params, client_socket, process.pid);
+    list_destroy_and_destroy_elements(params, &free_param);
     if (!instruction_is_blocking(operation)) {
       packet_t *packet = packet_create(NON_BLOCKING_OP);
       packet_send(packet, client_socket);
       packet_destroy(packet);
-    }
-
-    sem_wait(&sem_process_interrupt);
-    if (dealloc == 1) {
-      log_debug(logger, "Desalojando proceso");
-      fflush(stdout);
-      interrupted = 1;
     } else {
-      log_debug(logger, "La ejecucion continua");
-      fflush(stdout);
+      sem_wait(&sem_process_interrupt);
+      if (dealloc == 1)
+        interrupted = 1;
+      sem_post(&sem_check_interrupt);
     }
-
-    sem_post(&sem_check_interrupt);
-    list_destroy_and_destroy_elements(params, &free_param);
-    if (dealloc == 0) {
+    if (dealloc == 0)
       instruction = request_fetch_instruction(process);
-      log_debug(logger, "Siguiente instruccion");
-      fflush(stdout);
-    }
   }
   dealloc = 0;
   load_registers(&process);
   reset_registers();
   packet_t *res = process_pack(process);
-  status_code status_code = instruction == NULL ? END_OF_FILE : OK;
-  packet_add(res, &status_code, sizeof(status_code));
+  status_code status = instruction == NULL ? END_OF_FILE : OK;
+  packet_add(res, &status, sizeof(status_code));
   packet_send(res, client_socket);
   packet_destroy(res);
 }
@@ -278,7 +290,6 @@ void *server_dispatch(void *args) {
 
   while (1) {
     log_debug(logger, "Esperando un proceso para ejecutar");
-    fflush(stdout);
     int client_socket = connection_accept_client(server_socket);
     if (client_socket == -1)
       continue;
@@ -300,15 +311,6 @@ void *server_dispatch(void *args) {
   return args;
 }
 
-void check_interrupt(packet_t *req) {
-  uint8_t message = packet_read_uint8(req);
-  if (message != 0)
-    dealloc = 1;
-  else
-    dealloc = 0;
-  sem_post(&sem_process_interrupt);
-}
-
 void *server_interrupt(void *args) {
   int server_socket = connection_create_server(puerto_interrupt);
 
@@ -324,14 +326,15 @@ void *server_interrupt(void *args) {
     packet_t *req = packet_recieve(client_socket);
     switch (req->type) {
     case INTERRUPT: {
-      check_interrupt(req);
-      packet_destroy(req);
-      connection_close(client_socket);
+      dealloc = 1;
+      sem_post(&sem_process_interrupt);
       break;
     }
     default:
       break;
     }
+    packet_destroy(req);
+    connection_close(client_socket);
   }
   connection_close(server_socket);
   return args;

@@ -69,7 +69,7 @@ uint8_t path_exists(char *path) {
 void response_init_process(packet_t *request, int client_socket) {
   char *path = packet_read_string(request);
   uint8_t exists = path_exists(path);
-  uint8_t status_code = exists ? OK : NOT_FOUND;
+  status_code status_code = exists ? OK : NOT_FOUND;
   packet_t *res = status_pack(status_code);
   packet_send(res, client_socket);
   packet_destroy(res);

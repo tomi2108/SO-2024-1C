@@ -9,6 +9,7 @@
 #include <string.h>
 #include <utils/connection.h>
 #include <utils/exit.h>
+#include <utils/instruction.h>
 #include <utils/packet.h>
 #include <utils/process.h>
 #include <utils/status.h>
@@ -161,52 +162,82 @@ void list_processes(void) {
   // imprimir el resto de procesos
 };
 
-packet_t *request_cpu_interrupt(uint8_t interrupt, int socket_cpu_dispatch) {
+process_t *request_cpu_interrupt(int socket_cpu_dispatch) {
   int socket_cpu_interrupt =
       connection_create_client(ip_cpu, puerto_cpu_interrupt);
   if (socket_cpu_interrupt == -1)
     exit_client_connection_error(logger);
 
   packet_t *req = packet_create(INTERRUPT);
-  packet_add_uint8(req, interrupt);
   packet_send(req, socket_cpu_interrupt);
-
   packet_destroy(req);
   connection_close(socket_cpu_interrupt);
 
-  if (interrupt != 0) {
-    return packet_recieve(socket_cpu_dispatch);
-  }
-
-  return NULL;
+  packet_t *res = packet_recieve(socket_cpu_dispatch);
+  process_t updated_process = process_unpack(res);
+  process_t *p = process_dup(updated_process);
+  packet_destroy(res);
+  return p;
 }
 
-packet_t *wait_process_exec(int socket_cpu_dispatch) {
+process_t *wait_process_exec(int socket_cpu_dispatch, int *finish_process) {
   packet_t *res = packet_recieve(socket_cpu_dispatch);
 
   switch (res->type) {
   case BLOCKING_OP: {
+    uint32_t instruction = packet_read_uint32(res);
     char *nombre = packet_read_string(res);
-    // por ahora solo IO_GEN_SLEEP
-    long tiempo_espera;
-    packet_read(res, &tiempo_espera, sizeof(long));
-    packet_destroy(res);
 
     if (dictionary_has_key(io_dict, nombre)) {
       io *interfaz = dictionary_get(io_dict, nombre);
       packet_t *io_res = packet_create(REGISTER_IO);
-      packet_add(io_res, &tiempo_espera, sizeof(long));
+      switch (instruction) {
+      case IO_GEN_SLEEP: {
+        long tiempo_espera;
+        packet_read(res, &tiempo_espera, sizeof(long));
+        packet_destroy(res);
+        packet_add(io_res, &tiempo_espera, sizeof(long));
+        break;
+      }
+      case IO_STDIN_READ: {
+        long tiempo_espera;
+        packet_read(res, &tiempo_espera, sizeof(long));
+        packet_destroy(res);
+        packet_add(io_res, &tiempo_espera, sizeof(long));
+        break;
+      }
+      case IO_STDOUT_WRITE: {
+        long tiempo_espera;
+        packet_read(res, &tiempo_espera, sizeof(long));
+        packet_destroy(res);
+        packet_add(io_res, &tiempo_espera, sizeof(long));
+        break;
+      }
+      default:
+        break;
+      }
       packet_send(io_res, interfaz->socket);
       packet_destroy(io_res);
-      return request_cpu_interrupt(1, socket_cpu_dispatch);
+    } else {
+      packet_destroy(res);
+      *finish_process = 1;
     }
-    break;
+    return request_cpu_interrupt(socket_cpu_dispatch);
   }
-  case NON_BLOCKING_OP: {
-    return request_cpu_interrupt(0, socket_cpu_dispatch);
+  case NON_BLOCKING_OP:
+    packet_destroy(res);
+    return NULL;
+  case PROCESS: {
+    process_t updated_process = process_unpack(res);
+    status_code status = OK;
+    packet_read(res, &status, sizeof(status_code));
+    packet_destroy(res);
+    if (status == END_OF_FILE)
+      *finish_process = 1;
+    process_t *p = process_dup(updated_process);
+
+    return p;
   }
-  case PROCESS:
-    return res;
   default:
     return NULL;
   }
@@ -214,7 +245,6 @@ packet_t *wait_process_exec(int socket_cpu_dispatch) {
 }
 
 void planificacion_fifo() {
-  while (1) {
     int socket_cpu_dispatch =
         connection_create_client(ip_cpu, puerto_cpu_dispatch);
     if (socket_cpu_dispatch == -1)
@@ -228,10 +258,11 @@ void planificacion_fifo() {
     packet_t *request = process_pack(process_to_exec);
     packet_send(request, socket_cpu_dispatch);
     packet_destroy(request);
-    packet_t *updated_process = NULL;
-    while (updated_process == NULL) {
-      updated_process = wait_process_exec(socket_cpu_dispatch);
-    }
+    process_t *updated_process = NULL;
+    int finish_process = 0;
+    while (updated_process == NULL)
+      updated_process = wait_process_exec(socket_cpu_dispatch, &finish_process);
+
     connection_close(socket_cpu_dispatch);
   }
 }
