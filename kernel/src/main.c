@@ -245,26 +245,27 @@ process_t *wait_process_exec(int socket_cpu_dispatch, int *finish_process) {
 }
 
 void planificacion_fifo() {
-    int socket_cpu_dispatch =
-        connection_create_client(ip_cpu, puerto_cpu_dispatch);
-    if (socket_cpu_dispatch == -1)
-      exit_client_connection_error(logger);
+  int socket_cpu_dispatch =
+      connection_create_client(ip_cpu, puerto_cpu_dispatch);
+  if (socket_cpu_dispatch == -1)
+    exit_client_connection_error(logger);
 
-    process_t process_to_exec = {1, "/process1", 2, 0};
-    // semaforos... para iniciar y detener planificacion
-    // if (exec == NULL && !queue_is_empty(ready_queue)) {
-    // process_t *process_to_exec = queue_pop(ready_queue);
-    // exec = process_to_exec;
-    packet_t *request = process_pack(process_to_exec);
-    packet_send(request, socket_cpu_dispatch);
-    packet_destroy(request);
-    process_t *updated_process = NULL;
-    int finish_process = 0;
-    while (updated_process == NULL)
-      updated_process = wait_process_exec(socket_cpu_dispatch, &finish_process);
+  process_t process_to_exec = {1, "/process1", 2, 0};
+  // semaforos... para iniciar y detener planificacion
+  // if (exec == NULL && !queue_is_empty(ready_queue)) {
+  // process_t *process_to_exec = queue_pop(ready_queue);
+  // exec = process_to_exec;
+  packet_t *request = process_pack(process_to_exec);
+  packet_send(request, socket_cpu_dispatch);
+  packet_destroy(request);
+  process_t *updated_process = NULL;
+  int finish_process = 0;
+  while (updated_process == NULL)
+    updated_process = wait_process_exec(socket_cpu_dispatch, &finish_process);
 
-    connection_close(socket_cpu_dispatch);
+  if (finish_process == 1) {
   }
+  connection_close(socket_cpu_dispatch);
 }
 
 void *consola_interactiva(void *args) {
