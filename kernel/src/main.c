@@ -187,7 +187,6 @@ process_t *wait_process_exec(int socket_cpu_dispatch, int *finish_process) {
   case BLOCKING_OP: {
     uint32_t instruction = packet_read_uint32(res);
     char *nombre = packet_read_string(res);
-
     if (dictionary_has_key(io_dict, nombre)) {
       io *interfaz = dictionary_get(io_dict, nombre);
       packet_t *io_res = packet_create(REGISTER_IO);
@@ -200,17 +199,19 @@ process_t *wait_process_exec(int socket_cpu_dispatch, int *finish_process) {
         break;
       }
       case IO_STDIN_READ: {
-        long tiempo_espera;
-        packet_read(res, &tiempo_espera, sizeof(long));
+        uint32_t address = packet_read_uint32(res);
+        uint32_t size = packet_read_uint32(res);
         packet_destroy(res);
-        packet_add(io_res, &tiempo_espera, sizeof(long));
+        packet_add_uint32(io_res, address);
+        packet_add_uint32(io_res, size);
         break;
       }
       case IO_STDOUT_WRITE: {
-        long tiempo_espera;
-        packet_read(res, &tiempo_espera, sizeof(long));
+        uint32_t address = packet_read_uint32(res);
+        uint32_t size = packet_read_uint32(res);
         packet_destroy(res);
-        packet_add(io_res, &tiempo_espera, sizeof(long));
+        packet_add_uint32(io_res, address);
+        packet_add_uint32(io_res, size);
         break;
       }
       default:
