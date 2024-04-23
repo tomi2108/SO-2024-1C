@@ -116,7 +116,7 @@ void response_read_dir(packet_t *request, int client_socket) {
   uint32_t address = packet_read_uint32(request);
   int frame_number = floor(address / tam_pagina);
   int offset = address - frame_number * tam_pagina;
-  // page *memory_page = (page *)list_get(page_table, 1);
+
   uint8_t *aux = user_memory;
   aux += (tam_pagina * frame_number) + offset;
   packet_t *res = packet_create(MEMORY_CONTENT);
@@ -129,6 +129,7 @@ void response_write_dir(packet_t *request, int client_socket) {
   uint32_t address = packet_read_uint32(request);
   int frame_number = floor(address / tam_pagina);
   int offset = address - frame_number * tam_pagina;
+
   param_type p;
   packet_read(request, &p, sizeof(param_type));
 
@@ -152,7 +153,11 @@ void response_write_dir(packet_t *request, int client_socket) {
       log_info(logger, "Writing %c to page %d and offset %d", to_write[i],
                frame_number, offset);
       memset(aux, to_write[i], 1);
-      offset++;
+      if (offset == tam_pagina - 1) {
+        offset = 0;
+        frame_number++;
+      } else
+        offset++;
     }
   }
 }
