@@ -1,6 +1,7 @@
 #include <commons/collections/list.h>
 #include <commons/config.h>
 #include <commons/log.h>
+#include <math.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -112,9 +113,9 @@ void response_fetch_instruction(packet_t *request, int client_socket) {
 }
 
 void response_read_dir(packet_t *request, int client_socket) {
-  uint32_t physical_addres = packet_read_uint32(request);
-  int frame_number = 1;
-  int offset = physical_addres;
+  uint32_t address = packet_read_uint32(request);
+  int frame_number = floor(address / tam_pagina);
+  int offset = address - frame_number * tam_pagina;
   // page *memory_page = (page *)list_get(page_table, 1);
   uint8_t *aux = user_memory;
   aux += (tam_pagina * frame_number) + offset;
@@ -125,11 +126,9 @@ void response_read_dir(packet_t *request, int client_socket) {
 }
 
 void response_write_dir(packet_t *request, int client_socket) {
-  uint32_t physical_addres = packet_read_uint32(request);
-  int frame_number = 1;
-  int offset = 0;
-  uint8_t *aux = user_memory;
-  aux += (tam_pagina * frame_number) + offset;
+  uint32_t address = packet_read_uint32(request);
+  int frame_number = floor(address / tam_pagina);
+  int offset = address - frame_number * tam_pagina;
   param_type p;
   packet_read(request, &p, sizeof(param_type));
 
@@ -148,9 +147,12 @@ void response_write_dir(packet_t *request, int client_socket) {
   } else if (p == STRING) {
     char *to_write = packet_read_string(request);
     for (int i = 0; i < strlen(to_write); i++) {
-      log_info(logger, "Writing %c", to_write[i]);
+      uint8_t *aux = user_memory;
+      aux += (tam_pagina * frame_number) + offset;
+      log_info(logger, "Writing %c to page %d and offset %d", to_write[i],
+               frame_number, offset);
       memset(aux, to_write[i], 1);
-      aux++;
+      offset++;
     }
   }
 }

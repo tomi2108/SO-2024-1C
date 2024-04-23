@@ -319,7 +319,7 @@ void *consola_interactiva(void *args) {
       scanf("%s", message);
       int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
       packet_t *req = packet_create(WRITE_DIR);
-      packet_add_uint32(req, 0);
+      packet_add_uint32(req, 32);
       param_type p = STRING;
       packet_add(req, &p, sizeof(param_type));
       packet_add_string(req, message);
