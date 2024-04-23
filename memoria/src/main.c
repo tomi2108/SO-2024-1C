@@ -11,6 +11,7 @@
 #include <unistd.h>
 #include <utils/connection.h>
 #include <utils/exit.h>
+#include <utils/instruction.h>
 #include <utils/packet.h>
 #include <utils/status.h>
 
@@ -23,8 +24,18 @@ char *puerto_escucha;
 
 int tam_memoria;
 int tam_pagina;
+int cantidad_paginas;
 int retardo_respuesta;
 char *path_instrucciones;
+
+void *user_memory;
+t_list *page_table;
+
+typedef struct {
+  uint32_t pid;
+  int is_free;
+  uint32_t frame;
+} page;
 
 char *get_full_path(char *relative_path) {
 
@@ -66,6 +77,11 @@ uint8_t path_exists(char *path) {
   return exists == 0;
 }
 
+void response_resize_process(packet_t *req, int client_socket) {
+  uint32_t pid = packet_read_uint32(req);
+  uint32_t size = packet_read_uint32(req);
+}
+
 void response_init_process(packet_t *request, int client_socket) {
   char *path = packet_read_string(request);
   uint8_t exists = path_exists(path);
@@ -95,8 +111,49 @@ void response_fetch_instruction(packet_t *request, int client_socket) {
   }
 }
 
-void response_read_dir(packet_t *request, int client_socket) {}
-void response_write_dir(packet_t *request, int client_socket) {}
+void response_read_dir(packet_t *request, int client_socket) {
+  uint32_t physical_addres = packet_read_uint32(request);
+  int frame_number = 1;
+  int offset = physical_addres;
+  // page *memory_page = (page *)list_get(page_table, 1);
+  uint8_t *aux = user_memory;
+  aux += (tam_pagina * frame_number) + offset;
+  packet_t *res = packet_create(MEMORY_CONTENT);
+  packet_add_uint8(res, *aux);
+  packet_send(res, client_socket);
+  packet_destroy(res);
+}
+
+void response_write_dir(packet_t *request, int client_socket) {
+  uint32_t physical_addres = packet_read_uint32(request);
+  int frame_number = 1;
+  int offset = 0;
+  uint8_t *aux = user_memory;
+  aux += (tam_pagina * frame_number) + offset;
+  param_type p;
+  packet_read(request, &p, sizeof(param_type));
+
+  if (p == NUMBER) {
+    // uint32_t to_write = packet_read_uint32(request);
+    // uint8_t first_byte = to_write & 255;
+    // uint8_t second_byte = to_write & 65280;
+    // uint8_t third_byte = to_write & 16711680;
+    // uint8_t fourth_byte = to_write & 4278190080;
+    //
+    // *aux = first_byte;
+    // *(aux + 1) = second_byte;
+    // *(aux + 2) = third_byte;
+    // *(aux + 3) = fourth_byte;
+    //
+  } else if (p == STRING) {
+    char *to_write = packet_read_string(request);
+    for (int i = 0; i < strlen(to_write); i++) {
+      log_info(logger, "Writing %c", to_write[i]);
+      memset(aux, to_write[i], 1);
+      aux++;
+    }
+  }
+}
 
 void *atender_cliente(void *args) {
   int client_socket = *(int *)args;
@@ -114,6 +171,9 @@ void *atender_cliente(void *args) {
     break;
   case WRITE_DIR:
     response_write_dir(req, client_socket);
+    break;
+  case RESIZE_PROCESS:
+    response_resize_process(req, client_socket);
     break;
   default:
     break;
@@ -136,6 +196,7 @@ int main(int argc, char *argv[]) {
 
   tam_memoria = config_get_int_value(config, "TAM_MEMORIA");
   tam_pagina = config_get_int_value(config, "TAM_PAGINA");
+  cantidad_paginas = tam_memoria / tam_pagina;
   retardo_respuesta = config_get_int_value(config, "RETARDO_RESPUESTA");
   path_instrucciones = config_get_string_value(config, "PATH_INSTRUCCIONES");
 
@@ -145,6 +206,9 @@ int main(int argc, char *argv[]) {
   if (server_socket == -1)
     exit_server_connection_error(logger);
   log_info(logger, "Servidor levantado en el puerto %s", puerto_escucha);
+
+  user_memory = malloc(tam_memoria);
+  page_table = list_create();
 
   while (1) {
     int client_socket = connection_accept_client(server_socket);
@@ -157,6 +221,8 @@ int main(int argc, char *argv[]) {
     pthread_detach(thread);
   }
 
+  free(user_memory);
+  list_destroy(page_table);
   log_destroy(logger);
   connection_close(server_socket);
   config_destroy(config);

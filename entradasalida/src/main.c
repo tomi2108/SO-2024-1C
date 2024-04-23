@@ -6,6 +6,7 @@
 #include <sys/socket.h>
 #include <utils/connection.h>
 #include <utils/exit.h>
+#include <utils/instruction.h>
 #include <utils/packet.h>
 #include <utils/status.h>
 
@@ -76,6 +77,9 @@ void interfaz_stdin(packet_t *res) {
 
   scanf("%s", input);
   packet_t *req = packet_create(WRITE_DIR);
+  packet_add_uint32(req, direccion_fisica);
+  param_type p = STRING;
+  packet_add(req, &p, sizeof(param_type));
   packet_add_string(req, input);
   packet_send(req, socket_memoria);
   packet_destroy(req);

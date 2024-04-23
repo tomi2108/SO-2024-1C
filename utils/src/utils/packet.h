@@ -20,7 +20,8 @@ typedef enum {
   NON_BLOCKING_OP,
   PROCESS,
   INTERRUPT,
-  RESIZE_PROCESS
+  RESIZE_PROCESS,
+  MEMORY_CONTENT
 } packet_type;
 
 typedef struct {

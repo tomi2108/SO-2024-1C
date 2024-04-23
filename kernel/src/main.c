@@ -246,27 +246,39 @@ process_t *wait_process_exec(int socket_cpu_dispatch, int *finish_process) {
 }
 
 void planificacion_fifo() {
-  int socket_cpu_dispatch =
-      connection_create_client(ip_cpu, puerto_cpu_dispatch);
-  if (socket_cpu_dispatch == -1)
-    exit_client_connection_error(logger);
 
-  process_t process_to_exec = {1, "/process1", 2, 0};
-  // semaforos... para iniciar y detener planificacion
-  // if (exec == NULL && !queue_is_empty(ready_queue)) {
-  // process_t *process_to_exec = queue_pop(ready_queue);
-  // exec = process_to_exec;
-  packet_t *request = process_pack(process_to_exec);
-  packet_send(request, socket_cpu_dispatch);
-  packet_destroy(request);
-  process_t *updated_process = NULL;
-  int finish_process = 0;
-  while (updated_process == NULL)
-    updated_process = wait_process_exec(socket_cpu_dispatch, &finish_process);
+  process_t p1 = {1, "/process2", 2, 0};
+  process_t p2 = {2, "/process1", 2, 0};
+  process_t p3 = {3, "/process1", 2, 0};
+  queue_push(ready_queue, &p1);
+  queue_push(ready_queue, &p2);
+  queue_push(ready_queue, &p3);
 
-  if (finish_process == 1) {
+  while (queue_size(ready_queue) != 0) {
+    int socket_cpu_dispatch =
+        connection_create_client(ip_cpu, puerto_cpu_dispatch);
+    if (socket_cpu_dispatch == -1)
+      exit_client_connection_error(logger);
+
+    // semaforos... para iniciar y detener planificacion
+    // if (exec == NULL && !queue_is_empty(ready_queue)) {
+    process_t *process_to_exec = queue_pop(ready_queue);
+    // exec = process_to_exec;
+
+    packet_t *request = process_pack(*process_to_exec);
+    packet_send(request, socket_cpu_dispatch);
+    packet_destroy(request);
+
+    process_t *updated_process = NULL;
+    int finish_process = 0;
+    while (updated_process == NULL)
+      updated_process = wait_process_exec(socket_cpu_dispatch, &finish_process);
+
+    if (finish_process != 1) {
+      queue_push(ready_queue, updated_process);
+    }
+    connection_close(socket_cpu_dispatch);
   }
-  connection_close(socket_cpu_dispatch);
 }
 
 void *consola_interactiva(void *args) {
@@ -302,17 +314,36 @@ void *consola_interactiva(void *args) {
       // start_scheduler();
       break;
     }
-    case '6':
-      change_multiprogramming();
-      break;
-    case '7':
-      list_processes();
-      break;
+    case '6': {
+      char *message = malloc(40);
+      scanf("%s", message);
+      int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
+      packet_t *req = packet_create(WRITE_DIR);
+      packet_add_uint32(req, 0);
+      param_type p = STRING;
+      packet_add(req, &p, sizeof(param_type));
+      packet_add_string(req, message);
+      packet_send(req, socket_memoria);
+      packet_destroy(req);
+    }
+    // change_multiprogramming();
+    break;
+    case '7': {
+      uint32_t offset;
+      scanf("%u", &offset);
+      int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
+      packet_t *req = packet_create(READ_DIR);
+      packet_add_uint32(req, offset);
+      packet_send(req, socket_memoria);
+
+      packet_t *res = packet_recieve(socket_memoria);
+      uint8_t memory_contet = packet_read_uint8(res);
+      log_debug(logger, "Se leyo el char %c", memory_contet);
+      // list_processes();
+    } break;
     default:
-      printf("Invalid input\n");
       break;
     }
-
   } while (1);
   return EXIT_SUCCESS;
 }

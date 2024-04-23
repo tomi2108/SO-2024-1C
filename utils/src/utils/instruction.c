@@ -134,7 +134,9 @@ void instruction_mov_out(t_list *params, int client_socket,
   uint32_t physical_addres = translate_addres(*(uint32_t *)first_param->value);
 
   packet_t *req = packet_create(WRITE_DIR);
+  param_type p = NUMBER;
   packet_add_uint32(req, physical_addres);
+  packet_add(req, &p, sizeof(param_type));
   packet_add_uint32(req, *(uint32_t *)second_param->value);
   packet_send(req, client_socket);
   packet_destroy(req);
