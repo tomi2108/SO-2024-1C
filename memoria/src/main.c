@@ -25,21 +25,21 @@ char *puerto_escucha;
 
 int tam_memoria;
 int tam_pagina;
-int cantidad_paginas;
+int frame_count;
 int retardo_respuesta;
 char *path_instrucciones;
 
 void *user_memory;
-t_list *page_table;
+int next_page = 1;
 
+t_list *page_table;
 typedef struct {
   uint32_t pid;
   int is_free;
-  uint32_t frame;
-} page;
+  uint32_t page;
+} frame;
 
 char *get_full_path(char *relative_path) {
-
   char *full_path = malloc(
       sizeof(char) * (1 + strlen(relative_path) + strlen(path_instrucciones)));
   memset(full_path, 0, 1 + strlen(relative_path) + strlen(path_instrucciones));
@@ -78,7 +78,63 @@ uint8_t path_exists(char *path) {
   return exists == 0;
 }
 
+int get_next_free_frame() {
+  t_list_iterator *iterator = list_iterator_create(page_table);
+  frame *frame = list_iterator_next(iterator);
+  while (frame->is_free != 0 ||
+         list_size(page_table) == list_iterator_index(iterator) + 1) {
+    frame = list_iterator_next(iterator);
+  }
+
+  if (frame->is_free != 0) {
+    list_iterator_destroy(iterator);
+    return -1;
+  }
+  int i = list_iterator_index(iterator);
+  list_iterator_destroy(iterator);
+  return i;
+}
+
+int get_free_frames() { return 2; }
+
+uint32_t get_process_size(int pid) {}
+
+void alloc_page(int frame_index, int pid) {
+  frame *frame = list_get(page_table, frame_index);
+  frame->is_free = 0;
+  frame->pid = pid;
+  frame->page = next_page;
+  next_page++;
+}
+
 void response_resize_process(packet_t *req, int client_socket) {
+  uint32_t pid = packet_read_uint32(req);
+  uint32_t size = packet_read_uint32(req);
+  uint32_t process_size = get_process_size(pid);
+  if (size > process_size) {
+    int cant_paginas = ceil(size / tam_pagina);
+    int free_frames = get_free_frames();
+
+    if (cant_paginas > free_frames) {
+      packet_t *res = packet_create(OUT_OF_MEMORY);
+      packet_send(res, client_socket);
+      packet_destroy(res);
+      return;
+    }
+    for (int i = 0; i < cant_paginas; i++) {
+      int frame = get_next_free_frame();
+      alloc_page(frame, pid);
+    }
+  } else if (size < process_size) {
+    // liberar memoria de ese pid
+  }
+
+  packet_t *res = status_pack(OK);
+  packet_send(res, client_socket);
+  packet_destroy(res);
+}
+
+void response_free_process(packet_t *req, int client_socket) {
   uint32_t pid = packet_read_uint32(req);
   uint32_t size = packet_read_uint32(req);
 }
@@ -182,6 +238,9 @@ void *atender_cliente(void *args) {
   case RESIZE_PROCESS:
     response_resize_process(req, client_socket);
     break;
+  case FREE_PROCESS:
+    response_free_process(req, client_socket);
+    break;
   default:
     break;
   }
@@ -203,7 +262,7 @@ int main(int argc, char *argv[]) {
 
   tam_memoria = config_get_int_value(config, "TAM_MEMORIA");
   tam_pagina = config_get_int_value(config, "TAM_PAGINA");
-  cantidad_paginas = tam_memoria / tam_pagina;
+  frame_count = tam_memoria / tam_pagina;
   retardo_respuesta = config_get_int_value(config, "RETARDO_RESPUESTA");
   path_instrucciones = config_get_string_value(config, "PATH_INSTRUCCIONES");
 
@@ -217,6 +276,14 @@ int main(int argc, char *argv[]) {
   user_memory = malloc(tam_memoria);
   page_table = list_create();
 
+  for (int i = 0; i < frame_count; i++) {
+    frame *frame_struct = malloc(sizeof(frame));
+    frame_struct->pid = 0;
+    frame_struct->is_free = 1;
+    frame_struct->page = 0;
+    list_add(page_table, &frame_struct);
+  }
+
   while (1) {
     int client_socket = connection_accept_client(server_socket);
     if (client_socket == -1)
@@ -229,7 +296,7 @@ int main(int argc, char *argv[]) {
   }
 
   free(user_memory);
-  list_destroy(page_table);
+  list_destroy_and_destroy_elements(page_table, &free);
   log_destroy(logger);
   connection_close(server_socket);
   config_destroy(config);

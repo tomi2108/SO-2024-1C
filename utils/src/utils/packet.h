@@ -21,7 +21,9 @@ typedef enum {
   PROCESS,
   INTERRUPT,
   RESIZE_PROCESS,
-  MEMORY_CONTENT
+  MEMORY_CONTENT,
+  OUT_OF_MEMORY,
+  FREE_PROCESS
 } packet_type;
 
 typedef struct {
