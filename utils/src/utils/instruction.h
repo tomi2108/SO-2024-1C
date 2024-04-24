@@ -91,11 +91,25 @@ void instruction_jnz(t_list *params, uint32_t *pc);
  */
 void instruction_io_gen_sleep(t_list *params, int socket);
 
-void instruction_mov_in(t_list *params, int client_socket,
-                        uint32_t (*translate_addres)(uint32_t));
+/**
+ * @fn     instruction_mov_in
+ * @param  params Parameters to the MOV_IN instruction
+ * @param  socket Socket to send the resolution of MOV_IN
+ * @param  physical_address Address to read from
+ * @brief  MOV_IN instruction implementation
+ */
+uint8_t instruction_mov_in(t_list *params, int client_socket,
+                           uint32_t physical_address);
 
+/**
+ * @fn     instruction_mov_out
+ * @param  params Parameters to the MOV_OUT instruction
+ * @param  socket Socket to send the resolution of MOV_OUT
+ * @param  physical_address Address to read from
+ * @brief  MOV_OUT instruction implementation
+ */
 void instruction_mov_out(t_list *params, int client_socket,
-                         uint32_t (*translate_addres)(uint32_t));
+                         uint32_t physical_address);
 
 int instruction_resize(t_list *params, int client_socket, uint32_t pid);
 

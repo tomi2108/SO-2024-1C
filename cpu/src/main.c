@@ -57,6 +57,7 @@ char *request_fetch_instruction(process_t process) {
   packet_add_string(req, process.path);
   packet_send(req, socket_memoria);
   packet_destroy(req);
+  log_info(logger, "PID: %u - FETCH - Program Counter: %u", process.pid, pc);
 
   packet_t *res = packet_recieve(socket_memoria);
   char *instruction;
@@ -176,13 +177,28 @@ void exec_instruction(instruction_op op, t_list *params, int client_socket,
     break;
   case MOV_IN: {
     int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
-    instruction_mov_in(params, socket_memoria, &translate_addres);
+    param *second_param = (param *)list_get(params, 1);
+    uint32_t logical_address = *(uint32_t *)second_param->value;
+    uint32_t physical_address = translate_addres(logical_address);
+    uint8_t read_value =
+        instruction_mov_in(params, socket_memoria, physical_address);
+    log_info(logger,
+             "PID: %u - Accion: LECTURA - Direccion fisica: %u - Valor: %u",
+             pid, physical_address, read_value);
     connection_close(socket_memoria);
     break;
   }
   case MOV_OUT: {
     int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
-    instruction_mov_out(params, socket_memoria, &translate_addres);
+    param *first_param = (param *)list_get(params, 0);
+    param *second_param = (param *)list_get(params, 1);
+    uint32_t logical_address = *(uint32_t *)first_param->value;
+    uint32_t physical_address = translate_addres(logical_address);
+    uint32_t write_value = *(uint32_t *)second_param->value;
+    instruction_mov_out(params, socket_memoria, physical_address);
+    log_info(logger,
+             "PID: %u - Accion: ESCRITURA - Direccion fisica: %u - Valor: %u",
+             pid, physical_address, write_value);
     connection_close(socket_memoria);
     break;
   }
@@ -256,6 +272,7 @@ void response_exec_process(packet_t *req, int client_socket) {
     instruction_op operation = decode_instruction(instruction, params);
 
     exec_instruction(operation, params, client_socket, process.pid);
+    log_info(logger, "PID: %u - Ejecutando: %s", process.pid, instruction);
     list_destroy_and_destroy_elements(params, &free_param);
     if (!instruction_is_blocking(operation)) {
       packet_t *packet = packet_create(NON_BLOCKING_OP);
@@ -289,7 +306,6 @@ void *server_dispatch(void *args) {
            puerto_dispatch);
 
   while (1) {
-    log_debug(logger, "Esperando un proceso para ejecutar");
     int client_socket = connection_accept_client(server_socket);
     if (client_socket == -1)
       continue;

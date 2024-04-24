@@ -108,12 +108,9 @@ void instruction_io_gen_sleep(t_list *params, int socket) {
   packet_destroy(req);
 }
 
-void instruction_mov_in(t_list *params, int client_socket,
-                        uint32_t (*translate_addres)(uint32_t)) {
+uint8_t instruction_mov_in(t_list *params, int client_socket,
+                           uint32_t physical_addres) {
   param *first_param = list_get(params, 0);
-  param *second_param = list_get(params, 1);
-
-  uint32_t physical_addres = translate_addres(*(uint32_t *)second_param->value);
 
   packet_t *req = packet_create(READ_DIR);
   packet_add_uint32(req, physical_addres);
@@ -121,17 +118,15 @@ void instruction_mov_in(t_list *params, int client_socket,
   packet_destroy(req);
 
   packet_t *res = packet_recieve(client_socket);
-  uint32_t memory_content = packet_read_uint32(res);
+  uint8_t memory_content = packet_read_uint8(res);
   *(uint32_t *)first_param->value = memory_content;
   packet_destroy(res);
+  return memory_content;
 }
 
 void instruction_mov_out(t_list *params, int client_socket,
-                         uint32_t (*translate_addres)(uint32_t)) {
-  param *first_param = list_get(params, 0);
+                         uint32_t physical_addres) {
   param *second_param = list_get(params, 1);
-
-  uint32_t physical_addres = translate_addres(*(uint32_t *)first_param->value);
 
   packet_t *req = packet_create(WRITE_DIR);
   param_type p = NUMBER;
@@ -142,8 +137,7 @@ void instruction_mov_out(t_list *params, int client_socket,
   packet_destroy(req);
 
   packet_t *res = packet_recieve(client_socket);
-  status_code memory_content = packet_read_uint32(res);
-  *(uint32_t *)first_param->value = memory_content;
+  status_code memory_status = packet_read_uint32(res);
   packet_destroy(res);
 }
 

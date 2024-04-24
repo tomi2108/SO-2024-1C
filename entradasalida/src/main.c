@@ -42,13 +42,13 @@ void interfaz_generica(packet_t *res) {
 // se realize el modulo memoria
 void interfaz_stdout(packet_t *res) {
   usleep(tiempo_unidad_trabajo_ms * 1000);
-  uint32_t direccion_fisica = packet_read_uint32(res);
+  uint32_t address = packet_read_uint32(res);
   int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
   if (socket_memoria == -1)
     exit_client_connection_error(logger);
 
   packet_t *req = packet_create(READ_DIR);
-  packet_add_uint32(req, direccion_fisica);
+  packet_add_uint32(req, address);
   packet_send(req, socket_memoria);
   packet_destroy(req);
 
@@ -57,7 +57,8 @@ void interfaz_stdout(packet_t *res) {
   uint32_t memory_content = packet_read_uint32(res_memoria);
   packet_destroy(res_memoria);
 
-  log_info(logger, "%u", memory_content);
+  log_info(logger, "Se leyo de memoria: %u de la direccion %u", memory_content,
+           address);
 }
 
 // TODO: se asume que la direccion fisica sera uint32_t verificar cuando se
@@ -67,7 +68,7 @@ void interfaz_stdout(packet_t *res) {
 // realize el modulo memoria tambien se asume que la memoria puede procesar la
 // escritura de un char*
 void interfaz_stdin(packet_t *res) {
-  uint32_t direccion_fisica = packet_read_uint32(res);
+  uint32_t address = packet_read_uint32(res);
   int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
   if (socket_memoria == -1)
     exit_client_connection_error(logger);
@@ -93,10 +94,9 @@ void interfaz_stdin(packet_t *res) {
     log_error(logger,
               "No se pudo escribir %s en la direccion %u, la memoria respondio "
               "con un error",
-              input, direccion_fisica);
+              input, address);
   else
-    log_info(logger, "Se escribio %s en la direccion %u", input,
-             direccion_fisica);
+    log_info(logger, "Se escribio %s en la direccion %u", input, address);
 }
 
 void interfaz_dialfs(packet_t *res) {}
@@ -153,7 +153,6 @@ int main(int argc, char *argv[]) {
   request_register_io(socket_kernel);
 
   while (1) {
-    log_debug(logger, "Esperando instruccion");
     packet_t *res = packet_recieve(socket_kernel);
     if (strcmp(io_type, "generica") == 0) {
       interfaz_generica(res);
