@@ -95,9 +95,29 @@ int get_next_free_frame() {
   return i;
 }
 
-int get_free_frames() { return 2; }
+int get_free_frames() {
+  t_list_iterator *iterator = list_iterator_create(page_table);
+  int i = 0;
+  while (list_iterator_has_next(iterator)) {
+    frame *frame = list_iterator_next(iterator);
+    if (frame->is_free)
+      i++;
+  }
+  list_iterator_destroy(iterator);
+  return i;
+}
 
-uint32_t get_process_size(int pid) {}
+uint32_t get_process_size(int pid) {
+  t_list_iterator *iterator = list_iterator_create(page_table);
+  int i = 0;
+  while (list_iterator_has_next(iterator)) {
+    frame *frame = list_iterator_next(iterator);
+    if (frame->pid == pid)
+      i++;
+  }
+  list_iterator_destroy(iterator);
+  return i * tam_pagina;
+}
 
 void alloc_page(int frame_index, int pid) {
   frame *frame = list_get(page_table, frame_index);
@@ -111,7 +131,10 @@ void response_resize_process(packet_t *req, int client_socket) {
   uint32_t pid = packet_read_uint32(req);
   uint32_t size = packet_read_uint32(req);
   uint32_t process_size = get_process_size(pid);
+
   if (size > process_size) {
+    log_info(logger, "PID: %u - Tamanio Actual: %u - Tamanio a Ampliar %u", pid,
+             process_size, size - process_size);
     int cant_paginas = ceil(size / tam_pagina);
     int free_frames = get_free_frames();
 
@@ -121,11 +144,14 @@ void response_resize_process(packet_t *req, int client_socket) {
       packet_destroy(res);
       return;
     }
+
     for (int i = 0; i < cant_paginas; i++) {
       int frame = get_next_free_frame();
       alloc_page(frame, pid);
     }
   } else if (size < process_size) {
+    log_info(logger, "PID: %u - Tamanio Actual: %u - Tamanio a Reducir %u", pid,
+             process_size, process_size - size);
     // liberar memoria de ese pid
   }
 
@@ -168,23 +194,36 @@ void response_fetch_instruction(packet_t *request, int client_socket) {
   }
 }
 
+// Agregar tamanio a leer ... por ahora es solo 1 byte
+// Agregar PID que realiza la solicitud
+// Validar que la memoria pertenezca al proceso que lee....????
 void response_read_dir(packet_t *request, int client_socket) {
   uint32_t address = packet_read_uint32(request);
-  int frame_number = floor(address / tam_pagina);
-  int offset = address - frame_number * tam_pagina;
+  uint32_t pid = 0;
+  uint32_t size = 0;
+  log_info(logger,
+           "PID: %u - Accion: LECTURA - Direccion fisica: %u - Tamanio %u", pid,
+           address, size);
 
   uint8_t *aux = user_memory;
-  aux += (tam_pagina * frame_number) + offset;
+  aux += address;
+
   packet_t *res = packet_create(MEMORY_CONTENT);
   packet_add_uint8(res, *aux);
   packet_send(res, client_socket);
   packet_destroy(res);
 }
 
+// Agregar tamanio a escribir ... por ahora es solo 1 byte
+// Agregar PID que realiza la solicitud
+// Validar que la memoria pertenezca al proceso que escribe....????
 void response_write_dir(packet_t *request, int client_socket) {
   uint32_t address = packet_read_uint32(request);
-  int frame_number = floor(address / tam_pagina);
-  int offset = address - frame_number * tam_pagina;
+  uint32_t pid = 0;
+  uint32_t size = 0;
+  log_info(logger,
+           "PID: %u - Accion: ESCRITURA - Direccion fisica: %u - Tamanio %u",
+           pid, address, size);
 
   param_type p;
   packet_read(request, &p, sizeof(param_type));
@@ -203,17 +242,11 @@ void response_write_dir(packet_t *request, int client_socket) {
     //
   } else if (p == STRING) {
     char *to_write = packet_read_string(request);
+    uint8_t *aux = user_memory;
+    aux += address;
     for (int i = 0; i < strlen(to_write); i++) {
-      uint8_t *aux = user_memory;
-      aux += (tam_pagina * frame_number) + offset;
-      log_info(logger, "Writing %c to page %d and offset %d", to_write[i],
-               frame_number, offset);
       memset(aux, to_write[i], 1);
-      if (offset == tam_pagina - 1) {
-        offset = 0;
-        frame_number++;
-      } else
-        offset++;
+      aux++;
     }
   }
 }
