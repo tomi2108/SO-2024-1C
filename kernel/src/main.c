@@ -128,13 +128,7 @@ void *atender_cliente(void *args) {
 
 void exec_script(void) {}
 
-void init_process(void) {
-  printf("Ingresar path al archivo de instrucciones\n");
-  char path[FILE_NAME_MAX_LENGTH];
-  int c;
-  while ((c = getchar()) != '\n' && c != EOF) {
-  }
-
+void init_process(char *path) {
   fgets(path, FILE_NAME_MAX_LENGTH - 1, stdin);
   if (strlen(path) < FILE_NAME_MAX_LENGTH + 1) {
     path[strlen(path) - 1] = '\0';
@@ -265,6 +259,7 @@ void planificacion_fifo() {
     updated_process = wait_process_exec(socket_cpu_dispatch, &finish_process);
 
   if (finish_process == 1) {
+    log_info(logger, "Finaliza el proceso %u", updated_process->pid);
   }
   connection_close(socket_cpu_dispatch);
 }
@@ -288,9 +283,15 @@ void *consola_interactiva(void *args) {
     case '1':
       exec_script();
       break;
-    case '2':
-      init_process();
+    case '2': {
+      printf("Ingresar path al archivo de instrucciones\n");
+      char path[FILE_NAME_MAX_LENGTH];
+      int c;
+      while ((c = getchar()) != '\n' && c != EOF) {
+      }
+      init_process(path);
       break;
+    }
     case '3':
       end_process();
       break;

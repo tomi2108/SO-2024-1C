@@ -80,7 +80,8 @@ void response_fetch_instruction(packet_t *request, int client_socket) {
   char *instruction_path = packet_read_string(request);
 
   char *instruction = fetch_instruction(program_counter, instruction_path);
-  log_debug(logger, "%s", instruction);
+  log_info(logger, "INSTRUCCION %s - PATH %s - Program Counter: %u",
+           instruction, instruction_path, program_counter);
   if (instruction != NULL) {
     packet_t *res = packet_create(INSTRUCTION);
     packet_add_string(res, instruction);
@@ -88,7 +89,6 @@ void response_fetch_instruction(packet_t *request, int client_socket) {
     free(instruction);
     packet_destroy(res);
   } else {
-    log_debug(logger, "No hay mas instrucciones");
     packet_t *res = status_pack(END_OF_FILE);
     packet_send(res, client_socket);
     packet_destroy(res);
