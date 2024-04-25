@@ -78,7 +78,7 @@ void interfaz_stdin(packet_t *res) {
 
   scanf("%s", input);
   packet_t *req = packet_create(WRITE_DIR);
-  packet_add_uint32(req, direccion_fisica);
+  packet_add_uint32(req, address);
   param_type p = STRING;
   packet_add(req, &p, sizeof(param_type));
   packet_add_string(req, input);

@@ -237,19 +237,17 @@ process_t *wait_process_exec(int socket_cpu_dispatch, int *finish_process) {
 
 void planificacion_fifo() {
 
-  process_t p1 = {1, "/process2", 2, 0};
-  process_t p2 = {2, "/process1", 2, 0};
-  process_t p3 = {3, "/process1", 2, 0};
+  process_t p1 = {1, "/process1", 2, 0};
+  process_t p2 = {2, "/process2", 2, 0};
   queue_push(ready_queue, &p1);
   queue_push(ready_queue, &p2);
-  queue_push(ready_queue, &p3);
 
-  while (queue_size(ready_queue) != 0) {
+  while (!queue_is_empty(ready_queue)) {
+
     int socket_cpu_dispatch =
         connection_create_client(ip_cpu, puerto_cpu_dispatch);
     if (socket_cpu_dispatch == -1)
       exit_client_connection_error(logger);
-
     // semaforos... para iniciar y detener planificacion
     // if (exec == NULL && !queue_is_empty(ready_queue)) {
     process_t *process_to_exec = queue_pop(ready_queue);
@@ -266,9 +264,14 @@ void planificacion_fifo() {
 
     if (finish_process != 1) {
       queue_push(ready_queue, updated_process);
-    } else
+    } else {
+      int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
+      packet_t *free_req = packet_create(FREE_PROCESS);
+      packet_add_uint32(free_req, updated_process->pid);
+      packet_send(free_req, socket_memoria);
+      packet_destroy(free_req);
       log_info(logger, "Finaliza el proceso %u", updated_process->pid);
-
+    }
     connection_close(socket_cpu_dispatch);
   }
 }

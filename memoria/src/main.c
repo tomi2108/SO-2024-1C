@@ -1,7 +1,6 @@
 #include <commons/collections/list.h>
 #include <commons/config.h>
 #include <commons/log.h>
-#include <math.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -38,6 +37,8 @@ typedef struct {
   int is_free;
   uint32_t page;
 } frame;
+
+int ceil_div(uint32_t num, int denom) { return (num + denom - 1) / denom; }
 
 char *get_full_path(char *relative_path) {
   char *full_path = malloc(
@@ -78,21 +79,56 @@ uint8_t path_exists(char *path) {
   return exists == 0;
 }
 
-int get_next_free_frame() {
-  t_list_iterator *iterator = list_iterator_create(page_table);
-  frame *frame = list_iterator_next(iterator);
-  while (frame->is_free != 0 ||
-         list_size(page_table) == list_iterator_index(iterator) + 1) {
-    frame = list_iterator_next(iterator);
-  }
+int get_next_free_frame(t_list *table) {
+  t_list_iterator *iterator = list_iterator_create(table);
 
-  if (frame->is_free != 0) {
+  frame *next_frame = list_iterator_next(iterator);
+  while (next_frame->is_free == 0 || !list_iterator_has_next(iterator))
+    next_frame = list_iterator_next(iterator);
+
+  if (next_frame->is_free == 0) {
     list_iterator_destroy(iterator);
     return -1;
   }
+
   int i = list_iterator_index(iterator);
   list_iterator_destroy(iterator);
   return i;
+}
+
+int get_frame_from_page(t_list *table, uint32_t page) {
+  t_list_iterator *iterator = list_iterator_create(table);
+  frame *next_frame = list_iterator_next(iterator);
+
+  while (next_frame->is_free == 1 || next_frame->page != page ||
+         !list_iterator_has_next(iterator))
+    next_frame = list_iterator_next(iterator);
+
+  if (next_frame->is_free == 1 || next_frame->page != page) {
+    list_iterator_destroy(iterator);
+    return -1;
+  }
+
+  int i = list_iterator_index(iterator);
+  list_iterator_destroy(iterator);
+  return i;
+}
+
+int get_next_pid_page(t_list *table, uint32_t pid) {
+  t_list_iterator *iterator = list_iterator_create(table);
+  frame *next_frame = list_iterator_next(iterator);
+
+  while (next_frame->is_free == 1 || next_frame->pid != pid ||
+         !list_iterator_has_next(iterator))
+    next_frame = list_iterator_next(iterator);
+
+  if (next_frame->is_free == 1 || next_frame->pid != pid) {
+    list_iterator_destroy(iterator);
+    return -1;
+  }
+
+  list_iterator_destroy(iterator);
+  return next_frame->page;
 }
 
 int get_free_frames() {
@@ -104,27 +140,60 @@ int get_free_frames() {
       i++;
   }
   list_iterator_destroy(iterator);
+  log_debug(logger, "free_frames %d", i);
   return i;
 }
 
-uint32_t get_process_size(int pid) {
+uint32_t get_process_size(uint32_t pid) {
   t_list_iterator *iterator = list_iterator_create(page_table);
   int i = 0;
   while (list_iterator_has_next(iterator)) {
     frame *frame = list_iterator_next(iterator);
-    if (frame->pid == pid)
+    if (frame->pid == pid && frame->is_free == 0)
       i++;
   }
   list_iterator_destroy(iterator);
+  log_debug(logger, "Process size %u", i * tam_pagina);
   return i * tam_pagina;
 }
 
-void alloc_page(int frame_index, int pid) {
+void alloc_page(int frame_index, uint32_t pid) {
   frame *frame = list_get(page_table, frame_index);
   frame->is_free = 0;
   frame->pid = pid;
   frame->page = next_page;
   next_page++;
+}
+
+void dealloc_page(int frame_index) {
+  frame *frame = list_get(page_table, frame_index);
+  frame->is_free = 1;
+}
+
+bool sort_by_page(void *a, void *b) {
+  frame *f_a = (frame *)a;
+  frame *f_b = (frame *)b;
+  return f_a->page > f_b->page;
+}
+
+void expand_process(uint32_t pid, int cant_paginas) {
+  log_debug(logger, "Expanding process %d pages", cant_paginas);
+  for (int i = 0; i < cant_paginas; i++) {
+    int frame = get_next_free_frame(page_table);
+    alloc_page(frame, pid);
+    log_debug(logger, "Alloc frame %d to %u", frame, pid);
+  }
+}
+
+void reduce_process(uint32_t pid, int cant_paginas) {
+  log_debug(logger, "Reducing process %d pages", cant_paginas);
+  t_list *sorted_table = list_sorted(page_table, &sort_by_page);
+  for (int i = 0; i < cant_paginas; i++) {
+    int page = get_next_pid_page(sorted_table, pid);
+    int frame = get_frame_from_page(page_table, page);
+    dealloc_page(frame);
+    log_debug(logger, "Dealloc frame %d from %u", frame, pid);
+  }
 }
 
 void response_resize_process(packet_t *req, int client_socket) {
@@ -133,26 +202,28 @@ void response_resize_process(packet_t *req, int client_socket) {
   uint32_t process_size = get_process_size(pid);
 
   if (size > process_size) {
-    log_info(logger, "PID: %u - Tamanio Actual: %u - Tamanio a Ampliar %u", pid,
-             process_size, size - process_size);
-    int cant_paginas = ceil(size / tam_pagina);
-    int free_frames = get_free_frames();
+    uint32_t size_to_add = size - process_size;
+    uint32_t cant_paginas = ceil_div(size_to_add, tam_pagina);
 
+    log_info(logger, "PID: %u - Tamanio Actual: %u - Tamanio a Ampliar %u", pid,
+             process_size, size_to_add);
+
+    int free_frames = get_free_frames();
     if (cant_paginas > free_frames) {
       packet_t *res = packet_create(OUT_OF_MEMORY);
       packet_send(res, client_socket);
       packet_destroy(res);
       return;
     }
-
-    for (int i = 0; i < cant_paginas; i++) {
-      int frame = get_next_free_frame();
-      alloc_page(frame, pid);
-    }
+    expand_process(pid, cant_paginas);
   } else if (size < process_size) {
+    uint32_t size_to_reduce = process_size - size;
+    int cant_paginas = size_to_reduce / tam_pagina;
+
     log_info(logger, "PID: %u - Tamanio Actual: %u - Tamanio a Reducir %u", pid,
-             process_size, process_size - size);
-    // liberar memoria de ese pid
+             process_size, size_to_reduce);
+
+    reduce_process(pid, cant_paginas);
   }
 
   packet_t *res = status_pack(OK);
@@ -162,7 +233,13 @@ void response_resize_process(packet_t *req, int client_socket) {
 
 void response_free_process(packet_t *req, int client_socket) {
   uint32_t pid = packet_read_uint32(req);
-  uint32_t size = packet_read_uint32(req);
+  uint32_t process_size = get_process_size(pid);
+  int cant_paginas = process_size / tam_pagina;
+  reduce_process(pid, cant_paginas);
+
+  packet_t *res = status_pack(OK);
+  packet_send(res, client_socket);
+  packet_destroy(res);
 }
 
 void response_init_process(packet_t *request, int client_socket) {
@@ -179,9 +256,9 @@ void response_fetch_instruction(packet_t *request, int client_socket) {
   char *instruction_path = packet_read_string(request);
 
   char *instruction = fetch_instruction(program_counter, instruction_path);
-  log_info(logger, "INSTRUCCION %s - PATH %s - Program Counter: %u",
-           instruction, instruction_path, program_counter);
   if (instruction != NULL) {
+    log_info(logger, "INSTRUCCION %s - PATH %s - Program Counter: %u",
+             instruction, instruction_path, program_counter);
     packet_t *res = packet_create(INSTRUCTION);
     packet_add_string(res, instruction);
     packet_send(res, client_socket);
@@ -314,7 +391,7 @@ int main(int argc, char *argv[]) {
     frame_struct->pid = 0;
     frame_struct->is_free = 1;
     frame_struct->page = 0;
-    list_add(page_table, &frame_struct);
+    list_add(page_table, frame_struct);
   }
 
   while (1) {
