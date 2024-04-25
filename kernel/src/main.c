@@ -2,7 +2,6 @@
 #include <commons/collections/queue.h>
 #include <commons/config.h>
 #include <commons/log.h>
-#include <ctype.h>
 #include <errno.h>
 #include <pthread.h>
 #include <stdint.h>
@@ -364,89 +363,22 @@ void planificacion_fifo() {
 }
 
 void *consola_interactiva(void *args) {
-  char input = '0';
-  do {
-    if (isdigit(input)) {
-      printf("+------------------------------------------+\n");
-      printf("| %-40s |\n", "1: Ejecutar script");
-      printf("| %-40s |\n", "2: Iniciar proceso");
-      printf("| %-40s |\n", "3: Finalizar proceso");
-      printf("| %-40s |\n", "4: Detener planificacion");
-      printf("| %-40s |\n", "5: Iniciar planificacion");
-      printf("| %-40s |\n", "6: Cambiar grado de multiprogramacion");
-      printf("| %-40s |\n", "7: Listar estados de procesos");
-      printf("+------------------------------------------+\n");
+  while (1) {
+    printf("Input command:\n> ");
+    char *input = NULL;
+    size_t length = 0;
+    length = getline(&input, &length, stdin);
+    input[length - 1] = '\0';
+    param p;
+    command_op op = decode_command(input, &p);
+    if (op == UNKNOWN_COMMAND) {
+      log_error(logger, "%s is not a command", input);
+      continue;
     }
-    input = getchar();
-    switch (input) {
-    case '1': {
-      printf("Ingresar path al archivo de comandos\n");
-      char path[FILE_NAME_MAX_LENGTH];
-      int c;
-      while ((c = getchar()) != '\n' && c != EOF) {
-      }
-      fgets(path, FILE_NAME_MAX_LENGTH - 1, stdin);
-      if (strlen(path) < FILE_NAME_MAX_LENGTH + 1) {
-        path[strlen(path) - 1] = '\0';
-      }
-      exec_script(path);
-      break;
-    }
-    case '2': {
-      printf("Ingresar path al archivo de instrucciones\n");
-      char path[FILE_NAME_MAX_LENGTH];
-      int c;
-      while ((c = getchar()) != '\n' && c != EOF) {
-      }
-      fgets(path, FILE_NAME_MAX_LENGTH - 1, stdin);
-      if (strlen(path) < FILE_NAME_MAX_LENGTH + 1) {
-        path[strlen(path) - 1] = '\0';
-      }
-      init_process(path);
-      break;
-    }
-    case '3':
-      end_process();
-      break;
-    case '4':
-      stop_scheduler();
-      break;
-    case '5': {
-      planificacion_fifo();
-      // start_scheduler();
-      break;
-    }
-    case '6': {
-      char *message = malloc(40);
-      scanf("%s", message);
-      int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
-      packet_t *req = packet_create(WRITE_DIR);
-      packet_add_uint32(req, 183);
-      param_type p = STRING;
-      packet_add(req, &p, sizeof(param_type));
-      packet_add_string(req, message);
-      packet_send(req, socket_memoria);
-      packet_destroy(req);
-    }
-    // change_multiprogramming();
-    break;
-    case '7': {
-      uint32_t offset;
-      scanf("%u", &offset);
-      int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
-      packet_t *req = packet_create(READ_DIR);
-      packet_add_uint32(req, offset);
-      packet_send(req, socket_memoria);
-
-      packet_t *res = packet_recieve(socket_memoria);
-      uint8_t memory_contet = packet_read_uint8(res);
-      log_debug(logger, "Se leyo el char %c", memory_contet);
-      // list_processes();
-    } break;
-    default:
-      break;
-    }
-  } while (1);
+    free(input);
+    // exec_command(op, p);
+    planificacion_fifo();
+  }
   return EXIT_SUCCESS;
 }
 
