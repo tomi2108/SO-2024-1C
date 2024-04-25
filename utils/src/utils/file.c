@@ -1,0 +1,20 @@
+#include "file.h"
+
+char *file_concat_path(char *path, char *path2) {
+  char *full_path = malloc(sizeof(char) * (1 + strlen(path) + strlen(path2)));
+  memset(full_path, 0, 1 + strlen(path) + strlen(path2));
+  strcat(full_path, path);
+  strcat(full_path, path2);
+  return full_path;
+}
+
+char *file_read_n_line(FILE *file, int n, int max_line_length) {
+  char *line = malloc(max_line_length * sizeof(char));
+  int i = 0;
+  while (fgets(line, max_line_length, file)) {
+    if (i == n)
+      return line;
+    i++;
+  }
+  return NULL;
+}

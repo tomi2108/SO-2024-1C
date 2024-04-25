@@ -6,11 +6,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/unistd.h>
 #include <time.h>
 #include <unistd.h>
 #include <utils/connection.h>
 #include <utils/exit.h>
+#include <utils/file.h>
 #include <utils/instruction.h>
 #include <utils/packet.h>
 #include <utils/status.h>
@@ -40,17 +40,8 @@ typedef struct {
 
 int ceil_div(uint32_t num, int denom) { return (num + denom - 1) / denom; }
 
-char *get_full_path(char *relative_path) {
-  char *full_path = malloc(
-      sizeof(char) * (1 + strlen(relative_path) + strlen(path_instrucciones)));
-  memset(full_path, 0, 1 + strlen(relative_path) + strlen(path_instrucciones));
-  strcat(full_path, path_instrucciones);
-  strcat(full_path, relative_path);
-  return full_path;
-}
-
 char *fetch_instruction(uint32_t program_counter, char *instruction_path) {
-  char *full_path = get_full_path(instruction_path);
+  char *full_path = file_concat_path(path_instrucciones, instruction_path);
 
   FILE *file = fopen(full_path, "r");
   free(full_path);
@@ -58,25 +49,10 @@ char *fetch_instruction(uint32_t program_counter, char *instruction_path) {
   if (file == NULL)
     exit_enoent_erorr(logger);
 
-  char *line = malloc(FILE_NAME_MAX_LENGTH * sizeof(char));
-  int i = 0;
-  while (fgets(line, FILE_NAME_MAX_LENGTH, file)) {
-    if (i == program_counter) {
-      fclose(file);
-      return line;
-    }
-    i++;
-  }
-  free(line);
+  char *line = file_read_n_line(file, program_counter, FILE_NAME_MAX_LENGTH);
   fclose(file);
-  return NULL;
-}
 
-uint8_t path_exists(char *path) {
-  char *full_path = get_full_path(path);
-  int exists = access(full_path, F_OK);
-  free(full_path);
-  return exists == 0;
+  return line;
 }
 
 int get_next_free_frame(t_list *table) {
@@ -244,7 +220,9 @@ void response_free_process(packet_t *req, int client_socket) {
 
 void response_init_process(packet_t *request, int client_socket) {
   char *path = packet_read_string(request);
-  uint8_t exists = path_exists(path);
+  char *full_path = file_concat_path(path_instrucciones, path);
+  uint8_t exists = file_exists(full_path);
+  free(full_path);
   status_code status_code = exists ? OK : NOT_FOUND;
   packet_t *res = status_pack(status_code);
   packet_send(res, client_socket);
