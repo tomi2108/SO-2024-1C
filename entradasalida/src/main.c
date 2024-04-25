@@ -28,9 +28,8 @@ int block_size;
 int block_count;
 
 void interfaz_generica(packet_t *res) {
-  long tiempo_espera;
-  packet_read(res, &tiempo_espera, sizeof(long));
-  log_info(logger, "Esperando %ld segundos",
+  uint32_t tiempo_espera = packet_read_uint32(res);
+  log_info(logger, "Esperando %u segundos",
            (tiempo_espera * tiempo_unidad_trabajo_ms) / 1000);
   usleep(tiempo_unidad_trabajo_ms * tiempo_espera * 1000);
 }
@@ -128,7 +127,7 @@ int main(int argc, char *argv[]) {
 
   config = config_create(argv[1]);
   if (config == NULL)
-    exit_enoent_erorr(logger);
+    exit_enoent_error(logger, argv[1]);
 
   io_type = config_get_string_value(config, "TIPO_INTERFAZ");
   if (!is_io_type_supported())

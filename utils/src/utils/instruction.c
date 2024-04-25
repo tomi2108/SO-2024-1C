@@ -67,7 +67,7 @@ int instruction_is_blocking(instruction_op op) {
 void instruction_set(t_list *params) {
   param *first_param = list_get(params, 0);
   param *second_param = list_get(params, 1);
-  *(uint32_t *)first_param->value = *(long *)second_param->value;
+  *(uint32_t *)first_param->value = *(uint32_t *)second_param->value;
 }
 
 void instruction_sum(t_list *params) {
@@ -91,7 +91,7 @@ void instruction_jnz(t_list *params, uint32_t *pc) {
   param *second_param = list_get(params, 1);
 
   if (*(uint32_t *)first_param->value != 0) {
-    *pc = *(long *)second_param->value;
+    *pc = *(uint32_t *)second_param->value;
   }
 }
 
@@ -102,7 +102,7 @@ void instruction_io_gen_sleep(t_list *params, int socket) {
   packet_add_uint32(req, IO_GEN_SLEEP);
   packet_add_string(req, (char *)first_param->value);
 
-  packet_add(req, second_param->value, sizeof(long));
+  packet_add_uint32(req, *(uint32_t *)second_param->value);
   packet_send(req, socket);
 
   packet_destroy(req);

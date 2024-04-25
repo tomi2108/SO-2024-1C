@@ -15,7 +15,7 @@
 #include <utils/packet.h>
 #include <utils/status.h>
 
-#define FILE_NAME_MAX_LENGTH 60
+#define FILE_LINE_MAX_LENGTH 80
 
 t_log *logger;
 t_config *config;
@@ -44,12 +44,11 @@ char *fetch_instruction(uint32_t program_counter, char *instruction_path) {
   char *full_path = file_concat_path(path_instrucciones, instruction_path);
 
   FILE *file = fopen(full_path, "r");
-  free(full_path);
-
   if (file == NULL)
-    exit_enoent_erorr(logger);
+    exit_enoent_error(logger, full_path);
 
-  char *line = file_read_n_line(file, program_counter, FILE_NAME_MAX_LENGTH);
+  free(full_path);
+  char *line = file_read_n_line(file, program_counter, FILE_LINE_MAX_LENGTH);
   fclose(file);
 
   return line;
@@ -346,7 +345,7 @@ int main(int argc, char *argv[]) {
 
   config = config_create(argv[1]);
   if (config == NULL)
-    exit_enoent_erorr(logger);
+    exit_enoent_error(logger, argv[1]);
 
   tam_memoria = config_get_int_value(config, "TAM_MEMORIA");
   tam_pagina = config_get_int_value(config, "TAM_PAGINA");

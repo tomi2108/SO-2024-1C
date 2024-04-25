@@ -60,7 +60,7 @@ void exit_malformatted_arguments_error(t_log *logger);
  * @param logger Logger to log the error message
  * @brief Exits the thread with enoent error code
  */
-void exit_enoent_erorr(t_log *logger);
+void exit_enoent_error(t_log *logger, char *path);
 
 /**
  * @fn    exit_enoent_error

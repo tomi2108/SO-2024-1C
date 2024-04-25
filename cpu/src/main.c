@@ -135,9 +135,9 @@ instruction_op decode_instruction(char *instruction, t_list *params) {
       continue;
     }
 
-    long *number = malloc(sizeof(long));
-    long n = strtol(token, NULL, 10);
-    memcpy(number, &n, sizeof(long));
+    uint32_t *number = malloc(sizeof(uint32_t));
+    uint32_t n = strtol(token, NULL, 10);
+    memcpy(number, &n, sizeof(uint32_t));
 
     if (*number != 0 && errno != EINVAL) {
       param *p = malloc(sizeof(param));
@@ -365,7 +365,7 @@ int main(int argc, char *argv[]) {
 
   config = config_create(argv[1]);
   if (config == NULL)
-    exit_enoent_erorr(logger);
+    exit_enoent_error(logger, argv[1]);
 
   puerto_dispatch = config_get_string_value(config, "PUERTO_ESCUCHA_DISPATCH");
   puerto_interrupt =
