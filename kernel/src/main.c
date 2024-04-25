@@ -62,7 +62,7 @@ void print_process_queue(t_queue *queue, char *name) {
   }
 
   process_t *head = queue_pop(queue);
-  uint32_t head_pid = head->pid;
+  uint32_t head_pid = head->;
   process_print(*head);
   queue_push(queue, head);
 
@@ -170,7 +170,7 @@ process_t *request_cpu_interrupt(int socket_cpu_dispatch) {
   return p;
 }
 
-process_t *wait_process_exec(int socket_cpu_dispatch, int *finish_process) {
+process_t *wait_process_exec(int socket_cpu_dispatch, int *exit) {
   packet_t *res = packet_recieve(socket_cpu_dispatch);
 
   switch (res->type) {
@@ -211,7 +211,7 @@ process_t *wait_process_exec(int socket_cpu_dispatch, int *finish_process) {
       packet_destroy(io_res);
     } else {
       packet_destroy(res);
-      *finish_process = 1;
+      *exit = 1;
     }
     return request_cpu_interrupt(socket_cpu_dispatch);
   }
@@ -224,7 +224,7 @@ process_t *wait_process_exec(int socket_cpu_dispatch, int *finish_process) {
     packet_read(res, &status, sizeof(status_code));
     packet_destroy(res);
     if (status == END_OF_FILE)
-      *finish_process = 1;
+      *exit = 1;
     process_t *p = process_dup(updated_process);
 
     return p;
@@ -233,6 +233,14 @@ process_t *wait_process_exec(int socket_cpu_dispatch, int *finish_process) {
     return NULL;
   }
   return NULL;
+}
+void free_process(uint32_t pid) {
+  int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
+  packet_t *free_req = packet_create(FREE_PROCESS);
+  packet_add_uint32(free_req, pid);
+  packet_send(free_req, socket_memoria);
+  packet_destroy(free_req);
+  log_info(logger, "Finaliza el proceso %u", pid);
 }
 
 void planificacion_fifo() {
@@ -258,19 +266,14 @@ void planificacion_fifo() {
     packet_destroy(request);
 
     process_t *updated_process = NULL;
-    int finish_process = 0;
+    int exit = 0;
     while (updated_process == NULL)
-      updated_process = wait_process_exec(socket_cpu_dispatch, &finish_process);
+      updated_process = wait_process_exec(socket_cpu_dispatch, &exit);
 
-    if (finish_process != 1) {
+    if (exit != 1) {
       queue_push(ready_queue, updated_process);
     } else {
-      int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
-      packet_t *free_req = packet_create(FREE_PROCESS);
-      packet_add_uint32(free_req, updated_process->pid);
-      packet_send(free_req, socket_memoria);
-      packet_destroy(free_req);
-      log_info(logger, "Finaliza el proceso %u", updated_process->pid);
+      free_process(updated_process->pid);
     }
     connection_close(socket_cpu_dispatch);
   }
