@@ -98,8 +98,8 @@ void instruction_io_gen_sleep(t_list *params, int socket);
  * @param  physical_address Address to read from
  * @brief  MOV_IN instruction implementation
  */
-uint8_t instruction_mov_in(t_list *params, int client_socket,
-                           uint32_t physical_address);
+void instruction_mov_in(t_list *params, int client_socket,
+                        uint32_t physical_address, uint32_t pid);
 
 /**
  * @fn     instruction_mov_out
@@ -109,7 +109,7 @@ uint8_t instruction_mov_in(t_list *params, int client_socket,
  * @brief  MOV_OUT instruction implementation
  */
 void instruction_mov_out(t_list *params, int client_socket,
-                         uint32_t physical_address);
+                         uint32_t physical_address, uint32_t pid);
 
 int instruction_resize(t_list *params, int client_socket, uint32_t pid);
 

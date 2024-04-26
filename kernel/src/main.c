@@ -62,7 +62,7 @@ void print_process_queue(t_queue *queue, char *name) {
   }
 
   process_t *head = queue_pop(queue);
-  uint32_t head_pid = head->;
+  uint32_t head_pid = head->pid;
   process_print(*head);
   queue_push(queue, head);
 

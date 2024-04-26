@@ -108,37 +108,44 @@ void instruction_io_gen_sleep(t_list *params, int socket) {
   packet_destroy(req);
 }
 
-uint8_t instruction_mov_in(t_list *params, int client_socket,
-                           uint32_t physical_addres) {
+void instruction_mov_in(t_list *params, int client_socket,
+                        uint32_t physical_addres, uint32_t pid) {
   param *first_param = list_get(params, 0);
 
   packet_t *req = packet_create(READ_DIR);
   packet_add_uint32(req, physical_addres);
+  packet_add_uint32(req, pid);
+  packet_add_uint32(req, 4);
+
   packet_send(req, client_socket);
   packet_destroy(req);
 
   packet_t *res = packet_recieve(client_socket);
-  uint8_t memory_content = packet_read_uint8(res);
-  *(uint32_t *)first_param->value = memory_content;
+
+  // tambien es raaaaaro.... probar fuertemente
+  for (int i = 0; i < 4; i++) {
+    uint8_t byte = packet_read_uint8(res);
+    *((uint8_t *)first_param->value + i) = byte;
+  }
+
   packet_destroy(res);
-  return memory_content;
 }
 
 void instruction_mov_out(t_list *params, int client_socket,
-                         uint32_t physical_addres) {
+                         uint32_t physical_addres, uint32_t pid) {
   param *second_param = list_get(params, 1);
 
   packet_t *req = packet_create(WRITE_DIR);
-  param_type p = NUMBER;
   packet_add_uint32(req, physical_addres);
-  packet_add(req, &p, sizeof(param_type));
-  packet_add_uint32(req, *(uint32_t *)second_param->value);
+  packet_add_uint32(req, pid);
+  packet_add_uint32(req, 4);
+
+  // raaaro probar mucho esto por las dudas...
+  for (int i = 0; i < 4; i++)
+    packet_add_uint8(req, *((uint8_t *)second_param->value + i));
+
   packet_send(req, client_socket);
   packet_destroy(req);
-
-  packet_t *res = packet_recieve(client_socket);
-  status_code memory_status = packet_read_uint32(res);
-  packet_destroy(res);
 }
 
 int instruction_resize(t_list *params, int client_socket, uint32_t pid) {

@@ -254,17 +254,19 @@ void response_fetch_instruction(packet_t *request, int client_socket) {
 // Validar que la memoria pertenezca al proceso que lee....????
 void response_read_dir(packet_t *request, int client_socket) {
   uint32_t address = packet_read_uint32(request);
-  uint32_t pid = 0;
-  uint32_t size = 0;
+  uint32_t pid = packet_read_uint32(request);
+  uint32_t size = packet_read_uint32(request);
   log_info(logger,
            "PID: %u - Accion: LECTURA - Direccion fisica: %u - Tamanio %u", pid,
            address, size);
 
-  uint8_t *aux = user_memory;
-  aux += address;
-
   packet_t *res = packet_create(MEMORY_CONTENT);
-  packet_add_uint8(res, *aux);
+  for (int i = 0; i < size; i++) {
+    uint8_t *aux = user_memory;
+    aux += address + i;
+    packet_add_uint8(res, *aux);
+  }
+
   packet_send(res, client_socket);
   packet_destroy(res);
 }
@@ -274,35 +276,17 @@ void response_read_dir(packet_t *request, int client_socket) {
 // Validar que la memoria pertenezca al proceso que escribe....????
 void response_write_dir(packet_t *request, int client_socket) {
   uint32_t address = packet_read_uint32(request);
-  uint32_t pid = 0;
-  uint32_t size = 0;
+  uint32_t pid = packet_read_uint32(request);
+  uint32_t size = packet_read_uint32(request);
   log_info(logger,
            "PID: %u - Accion: ESCRITURA - Direccion fisica: %u - Tamanio %u",
            pid, address, size);
 
-  param_type p;
-  packet_read(request, &p, sizeof(param_type));
-
-  if (p == NUMBER) {
-    // uint32_t to_write = packet_read_uint32(request);
-    // uint8_t first_byte = to_write & 255;
-    // uint8_t second_byte = to_write & 65280;
-    // uint8_t third_byte = to_write & 16711680;
-    // uint8_t fourth_byte = to_write & 4278190080;
-    //
-    // *aux = first_byte;
-    // *(aux + 1) = second_byte;
-    // *(aux + 2) = third_byte;
-    // *(aux + 3) = fourth_byte;
-    //
-  } else if (p == STRING) {
-    char *to_write = packet_read_string(request);
+  for (int i = 0; i < size; i++) {
+    uint8_t to_write = packet_read_uint8(request);
     uint8_t *aux = user_memory;
-    aux += address;
-    for (int i = 0; i < strlen(to_write); i++) {
-      memset(aux, to_write[i], 1);
-      aux++;
-    }
+    aux += address + i;
+    memset(aux, to_write, 1);
   }
 }
 

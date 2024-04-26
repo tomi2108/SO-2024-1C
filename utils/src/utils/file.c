@@ -18,3 +18,8 @@ char *file_read_n_line(FILE *file, int n, int max_line_length) {
   }
   return NULL;
 }
+
+uint8_t file_exists(char *path) {
+  int exists = access(path, F_OK);
+  return exists == 0;
+}

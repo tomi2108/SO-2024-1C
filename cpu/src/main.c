@@ -177,25 +177,33 @@ void exec_instruction(instruction_op op, t_list *params, int client_socket,
     break;
   case MOV_IN: {
     int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
+
+    param *first_param = (param *)list_get(params, 0);
     param *second_param = (param *)list_get(params, 1);
+
     uint32_t logical_address = *(uint32_t *)second_param->value;
     uint32_t physical_address = translate_addres(logical_address);
-    uint8_t read_value =
-        instruction_mov_in(params, socket_memoria, physical_address);
+
+    instruction_mov_in(params, socket_memoria, physical_address, pid);
+    uint32_t read_value = *(uint32_t *)first_param->value;
     log_info(logger,
              "PID: %u - Accion: LECTURA - Direccion fisica: %u - Valor: %u",
              pid, physical_address, read_value);
+
     connection_close(socket_memoria);
     break;
   }
   case MOV_OUT: {
     int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
+
     param *first_param = (param *)list_get(params, 0);
     param *second_param = (param *)list_get(params, 1);
+
     uint32_t logical_address = *(uint32_t *)first_param->value;
     uint32_t physical_address = translate_addres(logical_address);
+
     uint32_t write_value = *(uint32_t *)second_param->value;
-    instruction_mov_out(params, socket_memoria, physical_address);
+    instruction_mov_out(params, socket_memoria, physical_address, pid);
     log_info(logger,
              "PID: %u - Accion: ESCRITURA - Direccion fisica: %u - Valor: %u",
              pid, physical_address, write_value);

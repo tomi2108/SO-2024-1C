@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/socket.h>
 #include <utils/connection.h>
 #include <utils/exit.h>
@@ -43,18 +44,24 @@ void interfaz_generica(packet_t *res) {
 void interfaz_stdout(packet_t *res) {
   usleep(tiempo_unidad_trabajo_ms * 1000);
   uint32_t address = packet_read_uint32(res);
+  uint32_t pid = packet_read_uint32(res);
+
   int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
   if (socket_memoria == -1)
     exit_client_connection_error(logger);
 
   packet_t *req = packet_create(READ_DIR);
+  uint32_t size = 1; // porque si
   packet_add_uint32(req, address);
+  packet_add_uint32(req, pid);
+  packet_add_uint32(req, size);
+
   packet_send(req, socket_memoria);
   packet_destroy(req);
 
   packet_t *res_memoria = packet_recieve(socket_memoria);
+  uint8_t memory_content = packet_read_uint8(res_memoria);
   connection_close(socket_memoria);
-  uint32_t memory_content = packet_read_uint32(res_memoria);
   packet_destroy(res_memoria);
 
   log_info(logger, "Se leyo de memoria: %u de la direccion %u", memory_content,
@@ -69,19 +76,23 @@ void interfaz_stdout(packet_t *res) {
 // escritura de un char*
 void interfaz_stdin(packet_t *res) {
   uint32_t address = packet_read_uint32(res);
+  uint32_t pid = packet_read_uint32(res);
   int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
   if (socket_memoria == -1)
     exit_client_connection_error(logger);
 
   char *input = ""; // TODO: sanitizar el input de alguna forma... restringir
                     // longitud quizas ?
-
   scanf("%s", input);
+  uint32_t length = strlen(input);
   packet_t *req = packet_create(WRITE_DIR);
+  packet_add_uint32(req, pid);
   packet_add_uint32(req, address);
-  param_type p = STRING;
-  packet_add(req, &p, sizeof(param_type));
-  packet_add_string(req, input);
+  packet_add_uint32(req, length);
+
+  for (int i = 0; i < length; i++)
+    packet_add_uint8(req, input[i]);
+
   packet_send(req, socket_memoria);
   packet_destroy(req);
 
