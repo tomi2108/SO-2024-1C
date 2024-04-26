@@ -23,7 +23,8 @@ typedef enum {
   RESIZE_PROCESS,
   MEMORY_CONTENT,
   OUT_OF_MEMORY,
-  FREE_PROCESS
+  FREE_PROCESS,
+  FETCH_FRAME_NUMBER
 } packet_type;
 
 typedef struct {

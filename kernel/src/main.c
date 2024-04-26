@@ -321,6 +321,7 @@ void exec_command(command_op op, param p) {
     init_process(p.value);
     break;
   case START_SCHEDULER:
+    // start_scheduler();
     planificacion_fifo();
     break;
   case STOP_SCHEDULER:

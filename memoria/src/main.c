@@ -29,7 +29,6 @@ int retardo_respuesta;
 char *path_instrucciones;
 
 void *user_memory;
-int next_page = 1;
 
 t_list *page_table;
 typedef struct {
@@ -71,15 +70,16 @@ int get_next_free_frame(t_list *table) {
   return i;
 }
 
-int get_frame_from_page(t_list *table, uint32_t page) {
+int get_frame_from_page(t_list *table, uint32_t page, uint32_t pid) {
   t_list_iterator *iterator = list_iterator_create(table);
   frame *next_frame = list_iterator_next(iterator);
 
   while (next_frame->is_free == 1 || next_frame->page != page ||
-         !list_iterator_has_next(iterator))
+         next_frame->pid != pid || !list_iterator_has_next(iterator))
     next_frame = list_iterator_next(iterator);
 
-  if (next_frame->is_free == 1 || next_frame->page != page) {
+  if (next_frame->is_free == 1 || next_frame->page != page ||
+      next_frame->pid != pid) {
     list_iterator_destroy(iterator);
     return -1;
   }
@@ -130,12 +130,14 @@ uint32_t get_process_size(uint32_t pid) {
   return i * tam_pagina;
 }
 
+int get_pages_count(uint32_t pid) { return get_process_size(pid) / tam_pagina; }
+
 void alloc_page(int frame_index, uint32_t pid) {
   frame *frame = list_get(page_table, frame_index);
+  int pages = get_pages_count(pid);
   frame->is_free = 0;
   frame->pid = pid;
-  frame->page = next_page;
-  next_page++;
+  frame->page = pages + 1;
 }
 
 void dealloc_page(int frame_index) {
@@ -160,7 +162,7 @@ void reduce_process(uint32_t pid, int cant_paginas) {
   t_list *sorted_table = list_sorted(page_table, &sort_by_page);
   for (int i = 0; i < cant_paginas; i++) {
     int page = get_next_pid_page(sorted_table, pid);
-    int frame = get_frame_from_page(page_table, page);
+    int frame = get_frame_from_page(page_table, page, pid);
     dealloc_page(frame);
   }
 }
@@ -243,6 +245,18 @@ void response_fetch_instruction(packet_t *request, int client_socket) {
   }
 }
 
+void response_fetch_frame_number(packet_t *req, int client_socket) {
+  uint32_t pid = packet_read_uint32(req);
+  uint32_t page_number = packet_read_uint32(req);
+
+  uint32_t frame_number = get_frame_from_page(page_table, page_number, pid);
+
+  packet_t *res = packet_create(FETCH_FRAME_NUMBER);
+  packet_add_uint32(res, frame_number);
+  packet_send(res, client_socket);
+  packet_destroy(res);
+}
+
 // Validar que la memoria pertenezca al proceso que lee....????
 void response_read_dir(packet_t *request, int client_socket) {
   uint32_t address = packet_read_uint32(request);
@@ -302,6 +316,9 @@ void *atender_cliente(void *args) {
     break;
   case FREE_PROCESS:
     response_free_process(req, client_socket);
+    break;
+  case FETCH_FRAME_NUMBER:
+    response_fetch_frame_number(req, client_socket);
     break;
   default:
     break;
