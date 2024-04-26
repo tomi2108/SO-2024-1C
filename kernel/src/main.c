@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 #include <utils/command.h>
 #include <utils/connection.h>
 #include <utils/exit.h>
@@ -362,6 +363,16 @@ void planificacion_fifo() {
   }
 }
 
+void *exec_command_thread(void *args) {
+  char *command = (char *)args;
+  param p;
+  command_op op = decode_command(command, &p);
+  exec_command(op, p);
+
+  free(command);
+  return EXIT_SUCCESS;
+}
+
 void *consola_interactiva(void *args) {
   while (1) {
     printf("Input command:\n> ");
@@ -369,15 +380,21 @@ void *consola_interactiva(void *args) {
     size_t length = 0;
     length = getline(&input, &length, stdin);
     input[length - 1] = '\0';
+
+    char *command = malloc(strlen(input) + 1);
+    strcpy(command, input);
+
     param p;
     command_op op = decode_command(input, &p);
     if (op == UNKNOWN_COMMAND) {
       log_error(logger, "%s is not a command", input);
       continue;
     }
+
     free(input);
-    // exec_command(op, p);
-    planificacion_fifo();
+    pthread_t exec_thread;
+    pthread_create(&exec_thread, NULL, &exec_command_thread, command);
+    pthread_detach(exec_thread);
   }
   return EXIT_SUCCESS;
 }
