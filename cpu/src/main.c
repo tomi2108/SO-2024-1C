@@ -45,7 +45,7 @@ sem_t sem_process_interrupt;
 
 int dealloc = 0;
 
-uint32_t translate_address(uint32_t logical_addres) { return 0; }
+uint32_t translate_address(uint32_t logical_addres) { return logical_addres; }
 
 char *request_fetch_instruction(process_t process) {
   int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
@@ -135,9 +135,9 @@ instruction_op decode_instruction(char *instruction, t_list *params) {
       continue;
     }
 
-    long *number = malloc(sizeof(long));
-    long n = strtol(token, NULL, 10);
-    memcpy(number, &n, sizeof(long));
+    uint32_t *number = malloc(sizeof(uint32_t));
+    uint32_t n = strtol(token, NULL, 10);
+    memcpy(number, &n, sizeof(uint32_t));
 
     if (*number != 0 && errno != EINVAL) {
       param *p = malloc(sizeof(param));
@@ -351,7 +351,7 @@ int main(int argc, char *argv[]) {
 
   config = config_create(argv[1]);
   if (config == NULL)
-    exit_enoent_erorr(logger);
+    exit_enoent_error(logger, argv[1]);
 
   puerto_dispatch = config_get_string_value(config, "PUERTO_ESCUCHA_DISPATCH");
   puerto_interrupt =

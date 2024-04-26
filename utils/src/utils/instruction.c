@@ -66,7 +66,7 @@ int instruction_is_blocking(instruction_op op) {
 void instruction_set(t_list *params) {
   param *first_param = list_get(params, 0);
   param *second_param = list_get(params, 1);
-  *(uint32_t *)first_param->value = *(long *)second_param->value;
+  *(uint32_t *)first_param->value = *(uint32_t *)second_param->value;
 }
 
 void instruction_sum(t_list *params) {
@@ -90,7 +90,7 @@ void instruction_jnz(t_list *params, uint32_t *pc) {
   param *second_param = list_get(params, 1);
 
   if (*(uint32_t *)first_param->value != 0) {
-    *pc = *(long *)second_param->value;
+    *pc = *(uint32_t *)second_param->value;
   }
 }
 
@@ -102,7 +102,7 @@ void instruction_io_gen_sleep(t_list *params, int socket) {
   packet_add_uint32(req, IO_GEN_SLEEP);
   packet_add_string(req, (char *)first_param->value);
 
-  packet_add(req, second_param->value, sizeof(long));
+  packet_add_uint32(req, *(uint32_t *)second_param->value);
   packet_send(req, socket);
 
   packet_destroy(req);
@@ -126,7 +126,6 @@ void instruction_mov_in(t_list *params, int client_socket, t_log *logger,
 
   packet_t *res = packet_recieve(client_socket);
 
-  // tambien es raaaaaro.... probar fuertemente
   for (int i = 0; i < 4; i++) {
     uint8_t byte = packet_read_uint8(res);
     *((uint8_t *)first_param->value + i) = byte;
@@ -154,7 +153,6 @@ void instruction_mov_out(t_list *params, int client_socket, t_log *logger,
   packet_add_uint32(req, pid);
   packet_add_uint32(req, 4);
 
-  // raaaro probar mucho esto por las dudas...
   for (int i = 0; i < 4; i++)
     packet_add_uint8(req, *((uint8_t *)second_param->value + i));
 

@@ -2,19 +2,25 @@
 #include <commons/collections/queue.h>
 #include <commons/config.h>
 #include <commons/log.h>
-#include <ctype.h>
+#include <errno.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
+#include <utils/command.h>
 #include <utils/connection.h>
 #include <utils/exit.h>
+#include <utils/file.h>
 #include <utils/instruction.h>
 #include <utils/packet.h>
 #include <utils/process.h>
 #include <utils/status.h>
 
 #define FILE_NAME_MAX_LENGTH 60
+#define FILE_LINE_MAX_LENGTH 80
+
+void exec_script(char *path);
 
 t_log *logger;
 t_config *config;
@@ -33,6 +39,7 @@ int quantum;
 char **recursos;
 char **instancias_recursos;
 int grado_multiprogramacion;
+char *path_instrucciones;
 
 int next_pid = 0;
 t_queue *new_queue;
@@ -55,7 +62,6 @@ void free_io(void *e) {
 }
 
 void print_process_queue(t_queue *queue, char *name) {
-
   if (queue_is_empty(queue)) {
     printf("La cola %s esta vacia\n", name);
     return;
@@ -79,7 +85,6 @@ void print_process_queue(t_queue *queue, char *name) {
 }
 
 status_code request_init_process(char *path) {
-
   int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
   if (socket_memoria == -1)
     exit_client_connection_error(logger);
@@ -126,7 +131,14 @@ void *atender_cliente(void *args) {
   return EXIT_SUCCESS;
 }
 
-void exec_script(void) {}
+void free_process(uint32_t pid) {
+  int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
+  packet_t *free_req = packet_create(FREE_PROCESS);
+  packet_add_uint32(free_req, pid);
+  packet_send(free_req, socket_memoria);
+  packet_destroy(free_req);
+  log_info(logger, "Finaliza el proceso %u", pid);
+}
 
 void init_process(char *path) {
   status_code res_status = request_init_process(path);
@@ -139,17 +151,6 @@ void init_process(char *path) {
   } else if (res_status == NOT_FOUND) {
     log_error(logger, "El archivo %s no existe", path);
   }
-};
-
-void end_process(void) {}
-void stop_scheduler(void) {}
-void start_scheduler(void) {}
-void change_multiprogramming(void) {}
-
-void list_processes(void) {
-  print_process_queue(new_queue, "NEW");
-  print_process_queue(ready_queue, "READY");
-  // imprimir el resto de procesos
 };
 
 process_t *request_cpu_interrupt(int socket_cpu_dispatch) {
@@ -182,10 +183,9 @@ process_t *wait_process_exec(int socket_cpu_dispatch, int *exit) {
       packet_t *io_res = packet_create(REGISTER_IO);
       switch (instruction) {
       case IO_GEN_SLEEP: {
-        long tiempo_espera;
-        packet_read(res, &tiempo_espera, sizeof(long));
+        uint32_t tiempo_espera = packet_read_uint32(res);
         packet_destroy(res);
-        packet_add(io_res, &tiempo_espera, sizeof(long));
+        packet_add_uint32(io_res, tiempo_espera);
         break;
       }
       case IO_STDIN_READ: {
@@ -238,14 +238,6 @@ process_t *wait_process_exec(int socket_cpu_dispatch, int *exit) {
   }
   return NULL;
 }
-void free_process(uint32_t pid) {
-  int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
-  packet_t *free_req = packet_create(FREE_PROCESS);
-  packet_add_uint32(free_req, pid);
-  packet_send(free_req, socket_memoria);
-  packet_destroy(free_req);
-  log_info(logger, "Finaliza el proceso %u", pid);
-}
 
 void planificacion_fifo() {
 
@@ -253,7 +245,6 @@ void planificacion_fifo() {
   process_t p2 = {2, "/process2", 2, 0};
   queue_push(ready_queue, &p1);
   queue_push(ready_queue, &p2);
-
   while (!queue_is_empty(ready_queue)) {
 
     int socket_cpu_dispatch =
@@ -283,76 +274,151 @@ void planificacion_fifo() {
   }
 }
 
-void *consola_interactiva(void *args) {
-  char input = '0';
-  do {
-    if (isdigit(input)) {
-      printf("+------------------------------------------+\n");
-      printf("| %-40s |\n", "1: Ejecutar script");
-      printf("| %-40s |\n", "2: Iniciar proceso");
-      printf("| %-40s |\n", "3: Finalizar proceso");
-      printf("| %-40s |\n", "4: Detener planificacion");
-      printf("| %-40s |\n", "5: Iniciar planificacion");
-      printf("| %-40s |\n", "6: Cambiar grado de multiprogramacion");
-      printf("| %-40s |\n", "7: Listar estados de procesos");
-      printf("+------------------------------------------+\n");
-    }
-    input = getchar();
-    switch (input) {
-    case '1':
-      exec_script();
-      break;
-    case '2': {
-      printf("Ingresar path al archivo de instrucciones\n");
-      char path[FILE_NAME_MAX_LENGTH];
-      int c;
-      while ((c = getchar()) != '\n' && c != EOF) {
-      }
-      init_process(path);
-      break;
-    }
-    case '3':
-      end_process();
-      break;
-    case '4':
-      stop_scheduler();
-      break;
-    case '5': {
-      planificacion_fifo();
-      // start_scheduler();
-      break;
-    }
-    case '6': {
-      char *message = malloc(40);
-      scanf("%s", message);
-      int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
-      packet_t *req = packet_create(WRITE_DIR);
-      packet_add_uint32(req, 183);
-      param_type p = STRING;
-      packet_add(req, &p, sizeof(param_type));
-      packet_add_string(req, message);
-      packet_send(req, socket_memoria);
-      packet_destroy(req);
-    }
-    // change_multiprogramming();
-    break;
-    case '7': {
-      uint32_t offset;
-      scanf("%u", &offset);
-      int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
-      packet_t *req = packet_create(READ_DIR);
-      packet_add_uint32(req, offset);
-      packet_send(req, socket_memoria);
+void end_process(void) {}
 
-      packet_t *res = packet_recieve(socket_memoria);
-      uint8_t memory_contet = packet_read_uint8(res);
-      log_debug(logger, "Se leyo el char %c", memory_contet);
-      // list_processes();
-    } break;
-    default:
-      break;
+void stop_scheduler(void) {}
+
+void start_scheduler(void) {}
+
+void change_multiprogramming(uint32_t new_value) {}
+
+void finish_process(uint32_t pid) {
+  // sacarlo de la cola o estado donde se encuentre
+
+  // liberar su memoria
+  free_process(pid);
+}
+
+void list_processes(void) {
+  print_process_queue(new_queue, "NEW");
+  print_process_queue(ready_queue, "READY");
+  // imprimir el resto de procesos
+};
+
+// FOR DEBUGGING
+void read_addr(uint32_t addr) {
+  int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
+  packet_t *req = packet_create(READ_DIR);
+
+  packet_add_uint32(req, addr);
+  packet_add_uint32(req, 0);
+  packet_add_uint32(req, 1);
+  packet_send(req, socket_memoria);
+  packet_destroy(req);
+
+  packet_t *res = packet_recieve(socket_memoria);
+  uint8_t memory_content = packet_read_uint8(res);
+
+  log_debug(logger, "ADDRESS: %u VALUE: %u", addr, memory_content);
+}
+
+void exec_command(command_op op, param p) {
+  switch (op) {
+  case EXEC_SCRIPT:
+    exec_script(p.value);
+    break;
+  case CREATE_PROCESS:
+    init_process(p.value);
+    break;
+  case START_SCHEDULER:
+    planificacion_fifo();
+    break;
+  case STOP_SCHEDULER:
+    stop_scheduler();
+    break;
+  case PRINT_PROCESSES:
+    list_processes();
+    break;
+  case CHANGE_MULTIPROGRAMMING:
+    change_multiprogramming(*(uint32_t *)p.value);
+    break;
+  case FINISH_PROCESS:
+    finish_process(*(uint32_t *)p.value);
+    break;
+    // FOR DEBUGGING
+  case READ_ADDR:
+    read_addr(*(uint32_t *)p.value);
+    break;
+  default:
+    break;
+  }
+}
+
+command_op decode_command(char *command, param *p) {
+  char *token = strtok(command, " ");
+  if (token == NULL)
+    return UNKNOWN_COMMAND;
+
+  command_op op = command_op_from_string(token);
+  token = strtok(NULL, " ");
+  if (token != NULL) {
+    uint32_t *number = malloc(sizeof(uint32_t));
+    uint32_t n = strtol(token, NULL, 10);
+    memcpy(number, &n, sizeof(uint32_t));
+
+    if (*number != 0 && errno != EINVAL) {
+      p->type = NUMBER;
+      p->value = number;
+    } else {
+      free(number);
+      p->type = STRING;
+      p->value = token;
     }
-  } while (1);
+  }
+  return op;
+}
+
+void exec_script(char *path) {
+  char *full_path = file_concat_path(path_instrucciones, path);
+
+  FILE *script_file = fopen(full_path, "r");
+  if (script_file == NULL)
+    exit_enoent_error(logger, full_path);
+
+  while (!feof(script_file)) {
+    char *command = file_read_next_line(script_file, FILE_LINE_MAX_LENGTH);
+    param param;
+    command_op op = decode_command(command, &param);
+    exec_command(op, param);
+    free(command);
+  }
+
+  fclose(script_file);
+}
+
+void *exec_command_thread(void *args) {
+  char *command = (char *)args;
+  param p;
+  command_op op = decode_command(command, &p);
+  exec_command(op, p);
+
+  free(command);
+  return EXIT_SUCCESS;
+}
+
+void *consola_interactiva(void *args) {
+  while (1) {
+    printf("Input command:\n> ");
+    char *input = NULL;
+    size_t length = 0;
+    length = getline(&input, &length, stdin);
+    input[length - 1] = '\0';
+
+    char *command = malloc(strlen(input) + 1);
+    strcpy(command, input);
+
+    param p;
+    command_op op = decode_command(input, &p);
+    if (op == UNKNOWN_COMMAND) {
+      log_error(logger, "%s is not a command", input);
+      continue;
+    }
+
+    free(input);
+    pthread_t exec_thread;
+    pthread_create(&exec_thread, NULL, &exec_command_thread, command);
+    pthread_detach(exec_thread);
+  }
   return EXIT_SUCCESS;
 }
 
@@ -363,7 +429,7 @@ int main(int argc, char *argv[]) {
 
   config = config_create(argv[1]);
   if (config == NULL)
-    exit_enoent_erorr(logger);
+    exit_enoent_error(logger, argv[1]);
 
   puerto_escucha = config_get_string_value(config, "PUERTO_ESCUCHA");
 
@@ -382,6 +448,7 @@ int main(int argc, char *argv[]) {
   recursos = config_get_array_value(config, "RECURSOS");
   grado_multiprogramacion =
       config_get_int_value(config, "GRADO_MULTIPROGRAMACION");
+  path_instrucciones = config_get_string_value(config, "PATH_INSTRUCCIONES");
 
   new_queue = queue_create();
   ready_queue = queue_create();
@@ -410,7 +477,6 @@ int main(int argc, char *argv[]) {
   dictionary_destroy_and_destroy_elements(io_dict, &free_io);
   queue_destroy_and_destroy_elements(new_queue, (void *)&process_destroy);
   queue_destroy_and_destroy_elements(ready_queue, (void *)&process_destroy);
-  queue_destroy(ready_queue);
   pthread_join(console_thread, NULL);
   connection_close(server_socket);
   log_destroy(logger);

@@ -15,7 +15,7 @@
 #include <utils/packet.h>
 #include <utils/status.h>
 
-#define FILE_NAME_MAX_LENGTH 60
+#define FILE_LINE_MAX_LENGTH 80
 
 t_log *logger;
 t_config *config;
@@ -44,12 +44,11 @@ char *fetch_instruction(uint32_t program_counter, char *instruction_path) {
   char *full_path = file_concat_path(path_instrucciones, instruction_path);
 
   FILE *file = fopen(full_path, "r");
-  free(full_path);
-
   if (file == NULL)
-    exit_enoent_erorr(logger);
+    exit_enoent_error(logger, full_path);
 
-  char *line = file_read_n_line(file, program_counter, FILE_NAME_MAX_LENGTH);
+  free(full_path);
+  char *line = file_read_n_line(file, program_counter, FILE_LINE_MAX_LENGTH);
   fclose(file);
 
   return line;
@@ -210,9 +209,10 @@ void response_resize_process(packet_t *req, int client_socket) {
 void response_free_process(packet_t *req, int client_socket) {
   uint32_t pid = packet_read_uint32(req);
   uint32_t process_size = get_process_size(pid);
-  int cant_paginas = process_size / tam_pagina;
-  reduce_process(pid, cant_paginas);
-
+  if (process_size != 0) {
+    int cant_paginas = process_size / tam_pagina;
+    reduce_process(pid, cant_paginas);
+  }
   packet_t *res = status_pack(OK);
   packet_send(res, client_socket);
   packet_destroy(res);
@@ -249,8 +249,6 @@ void response_fetch_instruction(packet_t *request, int client_socket) {
   }
 }
 
-// Agregar tamanio a leer ... por ahora es solo 1 byte
-// Agregar PID que realiza la solicitud
 // Validar que la memoria pertenezca al proceso que lee....????
 void response_read_dir(packet_t *request, int client_socket) {
   uint32_t address = packet_read_uint32(request);
@@ -271,8 +269,6 @@ void response_read_dir(packet_t *request, int client_socket) {
   packet_destroy(res);
 }
 
-// Agregar tamanio a escribir ... por ahora es solo 1 byte
-// Agregar PID que realiza la solicitud
 // Validar que la memoria pertenezca al proceso que escribe....????
 void response_write_dir(packet_t *request, int client_socket) {
   uint32_t address = packet_read_uint32(request);
@@ -330,7 +326,7 @@ int main(int argc, char *argv[]) {
 
   config = config_create(argv[1]);
   if (config == NULL)
-    exit_enoent_erorr(logger);
+    exit_enoent_error(logger, argv[1]);
 
   tam_memoria = config_get_int_value(config, "TAM_MEMORIA");
   tam_pagina = config_get_int_value(config, "TAM_PAGINA");

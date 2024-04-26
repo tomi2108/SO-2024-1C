@@ -11,6 +11,8 @@ char *file_concat_path(char *path, char *path2);
 
 char *file_read_n_line(FILE *file, int n, int max_line_length);
 
+char *file_read_next_line(FILE *file, int max_line_length);
+
 uint8_t file_exists(char *path);
 
 #endif
