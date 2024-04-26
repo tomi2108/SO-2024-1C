@@ -115,7 +115,6 @@ int get_free_frames() {
       i++;
   }
   list_iterator_destroy(iterator);
-  log_debug(logger, "free_frames %d", i);
   return i;
 }
 
@@ -128,7 +127,6 @@ uint32_t get_process_size(uint32_t pid) {
       i++;
   }
   list_iterator_destroy(iterator);
-  log_debug(logger, "Process size %u", i * tam_pagina);
   return i * tam_pagina;
 }
 
@@ -152,22 +150,18 @@ bool sort_by_page(void *a, void *b) {
 }
 
 void expand_process(uint32_t pid, int cant_paginas) {
-  log_debug(logger, "Expanding process %d pages", cant_paginas);
   for (int i = 0; i < cant_paginas; i++) {
     int frame = get_next_free_frame(page_table);
     alloc_page(frame, pid);
-    log_debug(logger, "Alloc frame %d to %u", frame, pid);
   }
 }
 
 void reduce_process(uint32_t pid, int cant_paginas) {
-  log_debug(logger, "Reducing process %d pages", cant_paginas);
   t_list *sorted_table = list_sorted(page_table, &sort_by_page);
   for (int i = 0; i < cant_paginas; i++) {
     int page = get_next_pid_page(sorted_table, pid);
     int frame = get_frame_from_page(page_table, page);
     dealloc_page(frame);
-    log_debug(logger, "Dealloc frame %d from %u", frame, pid);
   }
 }
 
