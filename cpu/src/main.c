@@ -45,7 +45,7 @@ sem_t sem_process_interrupt;
 
 int dealloc = 0;
 
-uint32_t translate_addres(uint32_t logical_addres) { return 0; }
+uint32_t translate_address(uint32_t logical_addres) { return 0; }
 
 char *request_fetch_instruction(process_t process) {
   int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
@@ -177,36 +177,14 @@ void exec_instruction(instruction_op op, t_list *params, int client_socket,
     break;
   case MOV_IN: {
     int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
-
-    param *first_param = (param *)list_get(params, 0);
-    param *second_param = (param *)list_get(params, 1);
-
-    uint32_t logical_address = *(uint32_t *)second_param->value;
-    uint32_t physical_address = translate_addres(logical_address);
-
-    instruction_mov_in(params, socket_memoria, physical_address, pid);
-    uint32_t read_value = *(uint32_t *)first_param->value;
-    log_info(logger,
-             "PID: %u - Accion: LECTURA - Direccion fisica: %u - Valor: %u",
-             pid, physical_address, read_value);
-
+    instruction_mov_in(params, socket_memoria, logger, &translate_address, pid);
     connection_close(socket_memoria);
     break;
   }
   case MOV_OUT: {
     int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
-
-    param *first_param = (param *)list_get(params, 0);
-    param *second_param = (param *)list_get(params, 1);
-
-    uint32_t logical_address = *(uint32_t *)first_param->value;
-    uint32_t physical_address = translate_addres(logical_address);
-
-    uint32_t write_value = *(uint32_t *)second_param->value;
-    instruction_mov_out(params, socket_memoria, physical_address, pid);
-    log_info(logger,
-             "PID: %u - Accion: ESCRITURA - Direccion fisica: %u - Valor: %u",
-             pid, physical_address, write_value);
+    instruction_mov_out(params, socket_memoria, logger, &translate_address,
+                        pid);
     connection_close(socket_memoria);
     break;
   }
@@ -217,10 +195,10 @@ void exec_instruction(instruction_op op, t_list *params, int client_socket,
     break;
   }
   case IO_STDIN_READ:
-    instruction_io_stdin(params, client_socket, &translate_addres);
+    instruction_io_stdin(params, client_socket, &translate_address, pid);
     break;
   case IO_STDOUT_WRITE:
-    instruction_io_stdout(params, client_socket, &translate_addres);
+    instruction_io_stdout(params, client_socket, &translate_address, pid);
     break;
   default:
     break;

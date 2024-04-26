@@ -190,17 +190,21 @@ process_t *wait_process_exec(int socket_cpu_dispatch, int *exit) {
       }
       case IO_STDIN_READ: {
         uint32_t address = packet_read_uint32(res);
+        uint32_t pid = packet_read_uint32(res);
         uint32_t size = packet_read_uint32(res);
         packet_destroy(res);
         packet_add_uint32(io_res, address);
+        packet_add_uint32(io_res, pid);
         packet_add_uint32(io_res, size);
         break;
       }
       case IO_STDOUT_WRITE: {
         uint32_t address = packet_read_uint32(res);
+        uint32_t pid = packet_read_uint32(res);
         uint32_t size = packet_read_uint32(res);
         packet_destroy(res);
         packet_add_uint32(io_res, address);
+        packet_add_uint32(io_res, pid);
         packet_add_uint32(io_res, size);
         break;
       }

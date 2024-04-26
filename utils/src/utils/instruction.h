@@ -4,6 +4,7 @@
 #include "packet.h"
 #include "status.h"
 #include <commons/collections/list.h>
+#include <commons/log.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -98,8 +99,8 @@ void instruction_io_gen_sleep(t_list *params, int socket);
  * @param  physical_address Address to read from
  * @brief  MOV_IN instruction implementation
  */
-void instruction_mov_in(t_list *params, int client_socket,
-                        uint32_t physical_address, uint32_t pid);
+void instruction_mov_in(t_list *params, int client_socket, t_log *logger,
+                        uint32_t (*translate_address)(uint32_t), uint32_t pid);
 
 /**
  * @fn     instruction_mov_out
@@ -108,17 +109,18 @@ void instruction_mov_in(t_list *params, int client_socket,
  * @param  physical_address Address to read from
  * @brief  MOV_OUT instruction implementation
  */
-void instruction_mov_out(t_list *params, int client_socket,
-                         uint32_t physical_address, uint32_t pid);
+void instruction_mov_out(t_list *params, int client_socket, t_log *logger,
+                         uint32_t (*translate_address)(uint32_t), uint32_t pid);
 
 int instruction_resize(t_list *params, int client_socket, uint32_t pid);
 
 void instruction_copy_string(t_list *params, uint32_t *si, uint32_t *di);
 
 void instruction_io_stdin(t_list *params, int socket,
-                          uint32_t (*translate_addres)(uint32_t));
+                          uint32_t (*translate_addres)(uint32_t), uint32_t pid);
 
 void instruction_io_stdout(t_list *params, int socket,
-                           uint32_t (*translate_addres)(uint32_t));
+                           uint32_t (*translate_addres)(uint32_t),
+                           uint32_t pid);
 
 #endif

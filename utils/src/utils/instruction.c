@@ -1,5 +1,4 @@
 #include "instruction.h"
-#include "packet.h"
 #include <stdint.h>
 
 char *instruction_op_to_string(instruction_op op) {
@@ -99,6 +98,7 @@ void instruction_io_gen_sleep(t_list *params, int socket) {
   param *first_param = list_get(params, 0);
   param *second_param = list_get(params, 1);
   packet_t *req = packet_create(BLOCKING_OP);
+
   packet_add_uint32(req, IO_GEN_SLEEP);
   packet_add_string(req, (char *)first_param->value);
 
@@ -108,12 +108,16 @@ void instruction_io_gen_sleep(t_list *params, int socket) {
   packet_destroy(req);
 }
 
-void instruction_mov_in(t_list *params, int client_socket,
-                        uint32_t physical_addres, uint32_t pid) {
+void instruction_mov_in(t_list *params, int client_socket, t_log *logger,
+                        uint32_t (*translate_address)(uint32_t), uint32_t pid) {
   param *first_param = list_get(params, 0);
+  param *second_param = (param *)list_get(params, 1);
+
+  uint32_t logical_address = *(uint32_t *)second_param->value;
+  uint32_t physical_address = translate_address(logical_address);
 
   packet_t *req = packet_create(READ_DIR);
-  packet_add_uint32(req, physical_addres);
+  packet_add_uint32(req, physical_address);
   packet_add_uint32(req, pid);
   packet_add_uint32(req, 4);
 
@@ -128,15 +132,25 @@ void instruction_mov_in(t_list *params, int client_socket,
     *((uint8_t *)first_param->value + i) = byte;
   }
 
+  log_info(logger,
+           "PID: %u - Accion: LECTURA - Direccion fisica: %u - Valor: %u", pid,
+           physical_address, *(uint32_t *)first_param->value);
   packet_destroy(res);
 }
 
-void instruction_mov_out(t_list *params, int client_socket,
-                         uint32_t physical_addres, uint32_t pid) {
+void instruction_mov_out(t_list *params, int client_socket, t_log *logger,
+                         uint32_t (*translate_address)(uint32_t),
+                         uint32_t pid) {
+
+  param *first_param = list_get(params, 0);
   param *second_param = list_get(params, 1);
 
+  uint32_t logical_address = *(uint32_t *)first_param->value;
+  uint32_t physical_address = translate_address(logical_address);
+
+  uint32_t write_value = *(uint32_t *)second_param->value;
   packet_t *req = packet_create(WRITE_DIR);
-  packet_add_uint32(req, physical_addres);
+  packet_add_uint32(req, physical_address);
   packet_add_uint32(req, pid);
   packet_add_uint32(req, 4);
 
@@ -144,6 +158,9 @@ void instruction_mov_out(t_list *params, int client_socket,
   for (int i = 0; i < 4; i++)
     packet_add_uint8(req, *((uint8_t *)second_param->value + i));
 
+  log_info(logger,
+           "PID: %u - Accion: ESCRITURA - Direccion fisica: %u - Valor: %u",
+           pid, physical_address, write_value);
   packet_send(req, client_socket);
   packet_destroy(req);
 }
@@ -170,7 +187,8 @@ void instruction_copy_string(t_list *params, uint32_t *si, uint32_t *di) {
 }
 
 void instruction_io_stdin(t_list *params, int socket,
-                          uint32_t (*translate_addres)(uint32_t)) {
+                          uint32_t (*translate_addres)(uint32_t),
+                          uint32_t pid) {
 
   param *first_param = list_get(params, 0);
   param *second_param = list_get(params, 1);
@@ -181,6 +199,7 @@ void instruction_io_stdin(t_list *params, int socket,
   packet_add_string(req, (char *)first_param->value);
 
   packet_add_uint32(req, translate_addres(*(uint32_t *)second_param->value));
+  packet_add_uint32(req, pid);
   packet_add_uint32(req, *(uint32_t *)third_param->value);
   packet_send(req, socket);
 
@@ -188,7 +207,8 @@ void instruction_io_stdin(t_list *params, int socket,
 }
 
 void instruction_io_stdout(t_list *params, int socket,
-                           uint32_t (*translate_addres)(uint32_t)) {
+                           uint32_t (*translate_addres)(uint32_t),
+                           uint32_t pid) {
 
   param *first_param = list_get(params, 0);
   param *second_param = list_get(params, 1);
@@ -199,6 +219,7 @@ void instruction_io_stdout(t_list *params, int socket,
   packet_add_string(req, (char *)first_param->value);
 
   packet_add_uint32(req, translate_addres(*(uint32_t *)second_param->value));
+  packet_add_uint32(req, pid);
   packet_add_uint32(req, *(uint32_t *)third_param->value);
 
   packet_send(req, socket);

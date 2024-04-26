@@ -36,25 +36,20 @@ void interfaz_generica(packet_t *res) {
   usleep(tiempo_unidad_trabajo_ms * tiempo_espera * 1000);
 }
 
-// TODO: se asume que la direccion fisica sera uint32_t verificar cuando se
-// realize el modulo memoria Probablemente agregar al paquete de req que se
-// intenta leer la direccion con un codigo_op correspondiente se asume que la
-// memoria responde con uint32 (el contenido de la direccion) verificar cuando
-// se realize el modulo memoria
 void interfaz_stdout(packet_t *res) {
   usleep(tiempo_unidad_trabajo_ms * 1000);
   uint32_t address = packet_read_uint32(res);
   uint32_t pid = packet_read_uint32(res);
+  uint32_t length = packet_read_uint32(res);
 
   int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
   if (socket_memoria == -1)
     exit_client_connection_error(logger);
 
   packet_t *req = packet_create(READ_DIR);
-  uint32_t size = 1; // porque si
   packet_add_uint32(req, address);
   packet_add_uint32(req, pid);
-  packet_add_uint32(req, size);
+  packet_add_uint32(req, length);
 
   packet_send(req, socket_memoria);
   packet_destroy(req);
@@ -68,15 +63,11 @@ void interfaz_stdout(packet_t *res) {
            address);
 }
 
-// TODO: se asume que la direccion fisica sera uint32_t verificar cuando se
-// realize el modulo memoria Probablemente agregar al paquete de req que se
-// intenta escribir la direccion con un codigo_op correspondiente se asume que
-// la memoria responde con uint32 (codigo OK or ERR ??) verificar cuando se
-// realize el modulo memoria tambien se asume que la memoria puede procesar la
-// escritura de un char*
 void interfaz_stdin(packet_t *res) {
   uint32_t address = packet_read_uint32(res);
   uint32_t pid = packet_read_uint32(res);
+  uint32_t length = packet_read_uint32(res);
+
   int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
   if (socket_memoria == -1)
     exit_client_connection_error(logger);
@@ -84,7 +75,6 @@ void interfaz_stdin(packet_t *res) {
   char *input = ""; // TODO: sanitizar el input de alguna forma... restringir
                     // longitud quizas ?
   scanf("%s", input);
-  uint32_t length = strlen(input);
   packet_t *req = packet_create(WRITE_DIR);
   packet_add_uint32(req, pid);
   packet_add_uint32(req, address);
