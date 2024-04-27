@@ -15,5 +15,12 @@ typedef enum {
   UNKNOWN_COMMAND
 } command_op;
 
+/**
+ * @fn     command_op_from_string
+ * @param  op String to convert
+ * @return Command op representation of the string, UNKNOWN_COMMAND if
+ * the string cannot be converted
+ * @brief  Converts a string to command_op
+ */
 command_op command_op_from_string(char *op);
 #endif

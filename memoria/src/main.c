@@ -31,6 +31,7 @@ char *path_instrucciones;
 void *user_memory;
 
 t_list *page_table;
+
 typedef struct {
   uint32_t pid;
   int is_free;
