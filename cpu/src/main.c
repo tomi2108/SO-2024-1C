@@ -250,26 +250,34 @@ void response_exec_process(packet_t *req, int client_socket) {
   int interrupted = 0;
   process_t process = process_unpack(req);
   unload_registers(process);
+
+  // fetch
   char *instruction = request_fetch_instruction(process);
   while (instruction != NULL && !interrupted) {
     pc++;
     t_list *params = list_create();
 
+    // decode
     instruction_op operation = decode_instruction(instruction, params);
 
+    // exec
     exec_instruction(operation, params, client_socket, process.pid);
     log_info(logger, "PID: %u - Ejecutando: %s", process.pid, instruction);
     list_destroy_and_destroy_elements(params, &free_param);
+
     if (!instruction_is_blocking(operation)) {
       packet_t *packet = packet_create(NON_BLOCKING_OP);
       packet_send(packet, client_socket);
       packet_destroy(packet);
-    } else {
-      sem_wait(&sem_process_interrupt);
-      if (dealloc == 1)
-        interrupted = 1;
-      sem_post(&sem_check_interrupt);
     }
+
+    // check interrupt
+    sem_wait(&sem_process_interrupt);
+    if (dealloc == 1)
+      interrupted = 1;
+    sem_post(&sem_check_interrupt);
+
+    // fetch
     if (dealloc == 0)
       instruction = request_fetch_instruction(process);
   }
@@ -329,12 +337,12 @@ void *server_interrupt(void *args) {
     switch (req->type) {
     case INTERRUPT: {
       dealloc = 1;
-      sem_post(&sem_process_interrupt);
       break;
     }
     default:
       break;
     }
+    sem_post(&sem_process_interrupt);
     packet_destroy(req);
     connection_close(client_socket);
   }

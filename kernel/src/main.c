@@ -143,26 +143,27 @@ void free_process(uint32_t pid) {
 void init_process(char *path) {
   status_code res_status = request_init_process(path);
   if (res_status == OK) {
-    uint32_t pid = next_pid;
-    next_pid++;
-    process_t *new_process = process_create(pid, strdup(path), quantum);
+    process_t *new_process = process_create(next_pid, strdup(path), quantum);
     queue_push(new_queue, new_process);
-    log_info(logger, "Se crea el proceso %d en NEW", pid);
+    log_info(logger, "Se crea el proceso %d en NEW", next_pid);
+    next_pid++;
   } else if (res_status == NOT_FOUND) {
     log_error(logger, "El archivo %s no existe", path);
   }
 };
 
-process_t *request_cpu_interrupt(int socket_cpu_dispatch) {
+process_t *request_cpu_interrupt(int interrupt, int socket_cpu_dispatch) {
   int socket_cpu_interrupt =
       connection_create_client(ip_cpu, puerto_cpu_interrupt);
   if (socket_cpu_interrupt == -1)
     exit_client_connection_error(logger);
 
-  packet_t *req = packet_create(INTERRUPT);
+  packet_t *req = packet_create(interrupt == 0 ? STATUS : INTERRUPT);
   packet_send(req, socket_cpu_interrupt);
   packet_destroy(req);
   connection_close(socket_cpu_interrupt);
+  if (interrupt == 0)
+    return NULL;
 
   packet_t *res = packet_recieve(socket_cpu_dispatch);
   process_t updated_process = process_unpack(res);
@@ -173,7 +174,6 @@ process_t *request_cpu_interrupt(int socket_cpu_dispatch) {
 
 process_t *wait_process_exec(int socket_cpu_dispatch, int *exit) {
   packet_t *res = packet_recieve(socket_cpu_dispatch);
-
   switch (res->type) {
   case BLOCKING_OP: {
     uint32_t instruction = packet_read_uint32(res);
@@ -217,11 +217,11 @@ process_t *wait_process_exec(int socket_cpu_dispatch, int *exit) {
       packet_destroy(res);
       *exit = 1;
     }
-    return request_cpu_interrupt(socket_cpu_dispatch);
+    return request_cpu_interrupt(1, socket_cpu_dispatch);
   }
   case NON_BLOCKING_OP:
     packet_destroy(res);
-    return NULL;
+    return request_cpu_interrupt(0, socket_cpu_dispatch);
   case PROCESS: {
     process_t updated_process = process_unpack(res);
     status_code status = OK;
@@ -241,12 +241,7 @@ process_t *wait_process_exec(int socket_cpu_dispatch, int *exit) {
 
 void planificacion_fifo() {
 
-  process_t p1 = {1, "/process1", 2, 0};
-  process_t p2 = {2, "/process2", 2, 0};
-  queue_push(ready_queue, &p1);
-  queue_push(ready_queue, &p2);
   while (!queue_is_empty(ready_queue)) {
-
     int socket_cpu_dispatch =
         connection_create_client(ip_cpu, puerto_cpu_dispatch);
     if (socket_cpu_dispatch == -1)
