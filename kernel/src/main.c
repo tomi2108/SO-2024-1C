@@ -175,13 +175,16 @@ process_t *request_cpu_interrupt(int interrupt, int socket_cpu_dispatch) {
 process_t *wait_process_exec(int socket_cpu_dispatch, int *exit) {
   packet_t *res = packet_recieve(socket_cpu_dispatch);
   switch (res->type) {
-  case BLOCKING_OP: {
-    uint32_t instruction = packet_read_uint32(res);
+  case INSTRUCTION: {
+    instruction_op op = packet_read_uint32(res);
+    if (!instruction_is_blocking(op))
+      return request_cpu_interrupt(0, socket_cpu_dispatch);
+
     char *nombre = packet_read_string(res);
     if (dictionary_has_key(io_dict, nombre)) {
       io *interfaz = dictionary_get(io_dict, nombre);
       packet_t *io_res = packet_create(REGISTER_IO);
-      switch (instruction) {
+      switch (op) {
       case IO_GEN_SLEEP: {
         uint32_t tiempo_espera = packet_read_uint32(res);
         packet_destroy(res);
@@ -219,9 +222,6 @@ process_t *wait_process_exec(int socket_cpu_dispatch, int *exit) {
     }
     return request_cpu_interrupt(1, socket_cpu_dispatch);
   }
-  case NON_BLOCKING_OP:
-    packet_destroy(res);
-    return request_cpu_interrupt(0, socket_cpu_dispatch);
   case PROCESS: {
     process_t updated_process = process_unpack(res);
     status_code status = OK;

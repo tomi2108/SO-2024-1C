@@ -90,7 +90,7 @@ void instruction_jnz(t_list *params, uint32_t *pc);
  * @param  socket Socket to send the resolution of IO_GEN_SLEEP
  * @brief  IO_GEN_SLEEP instruction implementation
  */
-void instruction_io_gen_sleep(t_list *params, int socket);
+void instruction_io_gen_sleep(t_list *params, packet_t *instruction_packet);
 
 /**
  * @fn     instruction_mov_in
@@ -142,7 +142,7 @@ void instruction_copy_string(t_list *params, uint32_t *si, uint32_t *di);
  * @param  pid                Pid from process
  * @brief  IO_STDIN_READ instruction implementation
  */
-void instruction_io_stdin(t_list *params, int socket,
+void instruction_io_stdin(t_list *params, packet_t *instruction_packet,
                           uint32_t (*translate_addres)(uint32_t), uint32_t pid);
 
 /**
@@ -153,7 +153,7 @@ void instruction_io_stdin(t_list *params, int socket,
  * @param  pid                Pid from process
  * @brief  IO_STDOUT_WRITE instruction implementation
  */
-void instruction_io_stdout(t_list *params, int socket,
+void instruction_io_stdout(t_list *params, packet_t *instruction_packet,
                            uint32_t (*translate_addres)(uint32_t),
                            uint32_t pid);
 

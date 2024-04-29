@@ -157,8 +157,8 @@ instruction_op decode_instruction(char *instruction, t_list *params) {
   return op;
 }
 
-void exec_instruction(instruction_op op, t_list *params, int client_socket,
-                      int pid) {
+void exec_instruction(instruction_op op, t_list *params,
+                      packet_t *instruction_packet, int pid) {
   switch (op) {
   case SET:
     instruction_set(params);
@@ -173,7 +173,7 @@ void exec_instruction(instruction_op op, t_list *params, int client_socket,
     instruction_jnz(params, &pc);
     break;
   case IO_GEN_SLEEP:
-    instruction_io_gen_sleep(params, client_socket);
+    instruction_io_gen_sleep(params, instruction_packet);
     break;
   case MOV_IN: {
     int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
@@ -195,10 +195,10 @@ void exec_instruction(instruction_op op, t_list *params, int client_socket,
     break;
   }
   case IO_STDIN_READ:
-    instruction_io_stdin(params, client_socket, &translate_address, pid);
+    instruction_io_stdin(params, instruction_packet, &translate_address, pid);
     break;
   case IO_STDOUT_WRITE:
-    instruction_io_stdout(params, client_socket, &translate_address, pid);
+    instruction_io_stdout(params, instruction_packet, &translate_address, pid);
     break;
   default:
     break;
@@ -261,15 +261,15 @@ void response_exec_process(packet_t *req, int client_socket) {
     instruction_op operation = decode_instruction(instruction, params);
 
     // exec
-    exec_instruction(operation, params, client_socket, process.pid);
+    packet_t *packet = packet_create(INSTRUCTION);
+    packet_add(packet, &operation, sizeof(instruction_op));
+
+    exec_instruction(operation, params, packet, process.pid);
     log_info(logger, "PID: %u - Ejecutando: %s", process.pid, instruction);
     list_destroy_and_destroy_elements(params, &free_param);
 
-    if (!instruction_is_blocking(operation)) {
-      packet_t *packet = packet_create(NON_BLOCKING_OP);
-      packet_send(packet, client_socket);
-      packet_destroy(packet);
-    }
+    packet_send(packet, client_socket);
+    packet_destroy(packet);
 
     // check interrupt
     sem_wait(&sem_process_interrupt);

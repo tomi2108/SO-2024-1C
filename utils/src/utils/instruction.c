@@ -94,18 +94,12 @@ void instruction_jnz(t_list *params, uint32_t *pc) {
   }
 }
 
-void instruction_io_gen_sleep(t_list *params, int socket) {
+void instruction_io_gen_sleep(t_list *params, packet_t *instruction_packet) {
   param *first_param = list_get(params, 0);
   param *second_param = list_get(params, 1);
-  packet_t *req = packet_create(BLOCKING_OP);
 
-  packet_add_uint32(req, IO_GEN_SLEEP);
-  packet_add_string(req, (char *)first_param->value);
-
-  packet_add_uint32(req, *(uint32_t *)second_param->value);
-  packet_send(req, socket);
-
-  packet_destroy(req);
+  packet_add_string(instruction_packet, (char *)first_param->value);
+  packet_add_uint32(instruction_packet, *(uint32_t *)second_param->value);
 }
 
 void instruction_mov_in(t_list *params, int client_socket, t_log *logger,
@@ -184,7 +178,7 @@ void instruction_copy_string(t_list *params, uint32_t *si, uint32_t *di) {
   param *first_param = list_get(params, 0);
 }
 
-void instruction_io_stdin(t_list *params, int socket,
+void instruction_io_stdin(t_list *params, packet_t *instruction_packet,
                           uint32_t (*translate_addres)(uint32_t),
                           uint32_t pid) {
 
@@ -192,19 +186,15 @@ void instruction_io_stdin(t_list *params, int socket,
   param *second_param = list_get(params, 1);
   param *third_param = list_get(params, 2);
 
-  packet_t *req = packet_create(BLOCKING_OP);
-  packet_add_uint32(req, IO_STDIN_READ);
-  packet_add_string(req, (char *)first_param->value);
+  packet_add_string(instruction_packet, (char *)first_param->value);
 
-  packet_add_uint32(req, translate_addres(*(uint32_t *)second_param->value));
-  packet_add_uint32(req, pid);
-  packet_add_uint32(req, *(uint32_t *)third_param->value);
-  packet_send(req, socket);
-
-  packet_destroy(req);
+  packet_add_uint32(instruction_packet,
+                    translate_addres(*(uint32_t *)second_param->value));
+  packet_add_uint32(instruction_packet, pid);
+  packet_add_uint32(instruction_packet, *(uint32_t *)third_param->value);
 }
 
-void instruction_io_stdout(t_list *params, int socket,
+void instruction_io_stdout(t_list *params, packet_t *instruction_packet,
                            uint32_t (*translate_addres)(uint32_t),
                            uint32_t pid) {
 
@@ -212,14 +202,10 @@ void instruction_io_stdout(t_list *params, int socket,
   param *second_param = list_get(params, 1);
   param *third_param = list_get(params, 2);
 
-  packet_t *req = packet_create(BLOCKING_OP);
-  packet_add_uint32(req, IO_STDOUT_WRITE);
-  packet_add_string(req, (char *)first_param->value);
+  packet_add_string(instruction_packet, (char *)first_param->value);
 
-  packet_add_uint32(req, translate_addres(*(uint32_t *)second_param->value));
-  packet_add_uint32(req, pid);
-  packet_add_uint32(req, *(uint32_t *)third_param->value);
-
-  packet_send(req, socket);
-  packet_destroy(req);
+  packet_add_uint32(instruction_packet,
+                    translate_addres(*(uint32_t *)second_param->value));
+  packet_add_uint32(instruction_packet, pid);
+  packet_add_uint32(instruction_packet, *(uint32_t *)third_param->value);
 }
