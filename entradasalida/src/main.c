@@ -39,7 +39,7 @@ void interfaz_stdout(packet_t *res) {
   usleep(tiempo_unidad_trabajo_ms * 1000);
   uint32_t address = packet_read_uint32(res);
   uint32_t pid = packet_read_uint32(res);
-  uint32_t length = packet_read_uint32(res);
+  uint32_t size = packet_read_uint32(res);
 
   int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
   if (socket_memoria == -1)
@@ -48,55 +48,54 @@ void interfaz_stdout(packet_t *res) {
   packet_t *req = packet_create(READ_DIR);
   packet_add_uint32(req, address);
   packet_add_uint32(req, pid);
-  packet_add_uint32(req, length);
+  packet_add_uint32(req, size);
 
   packet_send(req, socket_memoria);
   packet_destroy(req);
 
   packet_t *res_memoria = packet_recieve(socket_memoria);
-  uint8_t memory_content = packet_read_uint8(res_memoria);
+  uint8_t *memory_content = malloc(size + 1);
+  memset(memory_content, 0, size + 1);
+  for (int i = 0; i < size; i++) {
+    uint8_t byte = packet_read_uint8(req);
+    *(memory_content + i) = byte;
+  }
+
   connection_close(socket_memoria);
   packet_destroy(res_memoria);
 
-  log_info(logger, "Se leyo de memoria: %u de la direccion %u", memory_content,
+  log_info(logger, "Se leyo de memoria: %s de la direccion %u", memory_content,
            address);
+  free(memory_content);
 }
 
 void interfaz_stdin(packet_t *res) {
   uint32_t address = packet_read_uint32(res);
   uint32_t pid = packet_read_uint32(res);
-  uint32_t length = packet_read_uint32(res);
+  uint32_t size = packet_read_uint32(res);
 
   int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
   if (socket_memoria == -1)
     exit_client_connection_error(logger);
 
-  char *input = ""; // TODO: sanitizar el input de alguna forma... restringir
-                    // longitud quizas ?
-  scanf("%s", input);
-  packet_t *req = packet_create(WRITE_DIR);
-  packet_add_uint32(req, pid);
-  packet_add_uint32(req, address);
-  packet_add_uint32(req, length);
+  log_info(logger, "Ingrese string a guardar en memoria");
+  char *input = NULL;
+  size_t length = 0;
+  length = getline(&input, &length, stdin);
+  input[length - 1] = '\0';
 
-  for (int i = 0; i < length; i++)
-    packet_add_uint8(req, input[i]);
+  packet_t *req = packet_create(WRITE_DIR);
+  packet_add_uint32(req, address);
+  packet_add_uint32(req, pid);
+  packet_add_uint32(req, size);
+
+  for (int i = 0; i < size; i++)
+    packet_add_uint8(req, *((uint8_t *)input + i));
 
   packet_send(req, socket_memoria);
   packet_destroy(req);
 
-  packet_t *res_memoria = packet_recieve(socket_memoria);
-  connection_close(socket_memoria);
-  uint8_t status = status_unpack(res_memoria);
-  packet_destroy(res);
-
-  if (status != OK)
-    log_error(logger,
-              "No se pudo escribir %s en la direccion %u, la memoria respondio "
-              "con un error",
-              input, address);
-  else
-    log_info(logger, "Se escribio %s en la direccion %u", input, address);
+  log_info(logger, "Se escribio %s en la direccion %u", input, address);
 }
 
 void interfaz_dialfs(packet_t *res) {}
@@ -156,11 +155,11 @@ int main(int argc, char *argv[]) {
     packet_t *res = packet_recieve(socket_kernel);
     if (strcmp(io_type, "generica") == 0) {
       interfaz_generica(res);
-    } else if (strcmp(io_type, "stdin")) {
+    } else if (strcmp(io_type, "stdin") == 0) {
       interfaz_stdin(res);
-    } else if (strcmp(io_type, "stdout")) {
+    } else if (strcmp(io_type, "stdout") == 0) {
       interfaz_stdout(res);
-    } else if (strcmp(io_type, "dialfs"))
+    } else if (strcmp(io_type, "dialfs") == 0)
       interfaz_dialfs(res);
     packet_destroy(res);
   }
