@@ -32,9 +32,9 @@ void exit_malformatted_arguments_error(t_log *logger) {
   exit(EXIT_MALFORMATTED_ARGUMENTS);
 }
 
-void exit_enoent_erorr(t_log *logger) {
-  log_error(logger, "EXIT CODE %d No se econtro el archivo o directorio",
-            EXIT_ENOENT);
+void exit_enoent_error(t_log *logger, char *path) {
+  log_error(logger, "EXIT CODE %d No se econtro el archivo o directorio: %s",
+            EXIT_ENOENT, path);
   exit(EXIT_ENOENT);
 }
 

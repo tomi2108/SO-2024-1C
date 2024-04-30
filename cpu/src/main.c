@@ -45,7 +45,7 @@ sem_t sem_process_interrupt;
 
 int dealloc = 0;
 
-uint32_t translate_addres(uint32_t logical_addres) { return 0; }
+uint32_t translate_address(uint32_t logical_addres) { return logical_addres; }
 
 char *request_fetch_instruction(process_t process) {
   int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
@@ -135,9 +135,9 @@ instruction_op decode_instruction(char *instruction, t_list *params) {
       continue;
     }
 
-    long *number = malloc(sizeof(long));
-    long n = strtol(token, NULL, 10);
-    memcpy(number, &n, sizeof(long));
+    uint32_t *number = malloc(sizeof(uint32_t));
+    uint32_t n = strtol(token, NULL, 10);
+    memcpy(number, &n, sizeof(uint32_t));
 
     if (*number != 0 && errno != EINVAL) {
       param *p = malloc(sizeof(param));
@@ -157,8 +157,8 @@ instruction_op decode_instruction(char *instruction, t_list *params) {
   return op;
 }
 
-void exec_instruction(instruction_op op, t_list *params, int client_socket,
-                      int pid) {
+void exec_instruction(instruction_op op, t_list *params,
+                      packet_t *instruction_packet, int pid) {
   switch (op) {
   case SET:
     instruction_set(params);
@@ -173,32 +173,18 @@ void exec_instruction(instruction_op op, t_list *params, int client_socket,
     instruction_jnz(params, &pc);
     break;
   case IO_GEN_SLEEP:
-    instruction_io_gen_sleep(params, client_socket);
+    instruction_io_gen_sleep(params, instruction_packet);
     break;
   case MOV_IN: {
     int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
-    param *second_param = (param *)list_get(params, 1);
-    uint32_t logical_address = *(uint32_t *)second_param->value;
-    uint32_t physical_address = translate_addres(logical_address);
-    uint8_t read_value =
-        instruction_mov_in(params, socket_memoria, physical_address);
-    log_info(logger,
-             "PID: %u - Accion: LECTURA - Direccion fisica: %u - Valor: %u",
-             pid, physical_address, read_value);
+    instruction_mov_in(params, socket_memoria, logger, &translate_address, pid);
     connection_close(socket_memoria);
     break;
   }
   case MOV_OUT: {
     int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
-    param *first_param = (param *)list_get(params, 0);
-    param *second_param = (param *)list_get(params, 1);
-    uint32_t logical_address = *(uint32_t *)first_param->value;
-    uint32_t physical_address = translate_addres(logical_address);
-    uint32_t write_value = *(uint32_t *)second_param->value;
-    instruction_mov_out(params, socket_memoria, physical_address);
-    log_info(logger,
-             "PID: %u - Accion: ESCRITURA - Direccion fisica: %u - Valor: %u",
-             pid, physical_address, write_value);
+    instruction_mov_out(params, socket_memoria, logger, &translate_address,
+                        pid);
     connection_close(socket_memoria);
     break;
   }
@@ -209,10 +195,10 @@ void exec_instruction(instruction_op op, t_list *params, int client_socket,
     break;
   }
   case IO_STDIN_READ:
-    instruction_io_stdin(params, client_socket, &translate_addres);
+    instruction_io_stdin(params, instruction_packet, &translate_address, pid);
     break;
   case IO_STDOUT_WRITE:
-    instruction_io_stdout(params, client_socket, &translate_addres);
+    instruction_io_stdout(params, instruction_packet, &translate_address, pid);
     break;
   default:
     break;
@@ -264,26 +250,34 @@ void response_exec_process(packet_t *req, int client_socket) {
   int interrupted = 0;
   process_t process = process_unpack(req);
   unload_registers(process);
+
+  // fetch
   char *instruction = request_fetch_instruction(process);
   while (instruction != NULL && !interrupted) {
     pc++;
     t_list *params = list_create();
 
+    // decode
     instruction_op operation = decode_instruction(instruction, params);
 
-    exec_instruction(operation, params, client_socket, process.pid);
+    // exec
+    packet_t *packet = packet_create(INSTRUCTION);
+    packet_add(packet, &operation, sizeof(instruction_op));
+
+    exec_instruction(operation, params, packet, process.pid);
     log_info(logger, "PID: %u - Ejecutando: %s", process.pid, instruction);
     list_destroy_and_destroy_elements(params, &free_param);
-    if (!instruction_is_blocking(operation)) {
-      packet_t *packet = packet_create(NON_BLOCKING_OP);
-      packet_send(packet, client_socket);
-      packet_destroy(packet);
-    } else {
-      sem_wait(&sem_process_interrupt);
-      if (dealloc == 1)
-        interrupted = 1;
-      sem_post(&sem_check_interrupt);
-    }
+
+    packet_send(packet, client_socket);
+    packet_destroy(packet);
+
+    // check interrupt
+    sem_wait(&sem_process_interrupt);
+    if (dealloc == 1)
+      interrupted = 1;
+    sem_post(&sem_check_interrupt);
+
+    // fetch
     if (dealloc == 0)
       instruction = request_fetch_instruction(process);
   }
@@ -343,12 +337,12 @@ void *server_interrupt(void *args) {
     switch (req->type) {
     case INTERRUPT: {
       dealloc = 1;
-      sem_post(&sem_process_interrupt);
       break;
     }
     default:
       break;
     }
+    sem_post(&sem_process_interrupt);
     packet_destroy(req);
     connection_close(client_socket);
   }
@@ -365,7 +359,7 @@ int main(int argc, char *argv[]) {
 
   config = config_create(argv[1]);
   if (config == NULL)
-    exit_enoent_erorr(logger);
+    exit_enoent_error(logger, argv[1]);
 
   puerto_dispatch = config_get_string_value(config, "PUERTO_ESCUCHA_DISPATCH");
   puerto_interrupt =

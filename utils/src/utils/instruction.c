@@ -1,5 +1,4 @@
 #include "instruction.h"
-#include "packet.h"
 #include <stdint.h>
 
 char *instruction_op_to_string(instruction_op op) {
@@ -67,7 +66,7 @@ int instruction_is_blocking(instruction_op op) {
 void instruction_set(t_list *params) {
   param *first_param = list_get(params, 0);
   param *second_param = list_get(params, 1);
-  *(uint32_t *)first_param->value = *(long *)second_param->value;
+  *(uint32_t *)first_param->value = *(uint32_t *)second_param->value;
 }
 
 void instruction_sum(t_list *params) {
@@ -91,52 +90,71 @@ void instruction_jnz(t_list *params, uint32_t *pc) {
   param *second_param = list_get(params, 1);
 
   if (*(uint32_t *)first_param->value != 0) {
-    *pc = *(long *)second_param->value;
+    *pc = *(uint32_t *)second_param->value;
   }
 }
 
-void instruction_io_gen_sleep(t_list *params, int socket) {
+void instruction_io_gen_sleep(t_list *params, packet_t *instruction_packet) {
   param *first_param = list_get(params, 0);
   param *second_param = list_get(params, 1);
-  packet_t *req = packet_create(BLOCKING_OP);
-  packet_add_uint32(req, IO_GEN_SLEEP);
-  packet_add_string(req, (char *)first_param->value);
 
-  packet_add(req, second_param->value, sizeof(long));
-  packet_send(req, socket);
-
-  packet_destroy(req);
+  packet_add_string(instruction_packet, (char *)first_param->value);
+  packet_add_uint32(instruction_packet, *(uint32_t *)second_param->value);
 }
 
-uint8_t instruction_mov_in(t_list *params, int client_socket,
-                           uint32_t physical_addres) {
+void instruction_mov_in(t_list *params, int client_socket, t_log *logger,
+                        uint32_t (*translate_address)(uint32_t), uint32_t pid) {
   param *first_param = list_get(params, 0);
+  param *second_param = (param *)list_get(params, 1);
+
+  uint32_t logical_address = *(uint32_t *)second_param->value;
+  uint32_t physical_address = translate_address(logical_address);
 
   packet_t *req = packet_create(READ_DIR);
-  packet_add_uint32(req, physical_addres);
+  packet_add_uint32(req, physical_address);
+  packet_add_uint32(req, pid);
+  packet_add_uint32(req, 4);
+
   packet_send(req, client_socket);
   packet_destroy(req);
 
   packet_t *res = packet_recieve(client_socket);
-  uint8_t memory_content = packet_read_uint8(res);
-  *(uint32_t *)first_param->value = memory_content;
+
+  for (int i = 0; i < 4; i++) {
+    uint8_t byte = packet_read_uint8(res);
+    *((uint8_t *)first_param->value + i) = byte;
+  }
+
+  log_info(logger,
+           "PID: %u - Accion: LECTURA - Direccion fisica: %u - Valor: %u", pid,
+           physical_address, *(uint32_t *)first_param->value);
   packet_destroy(res);
-  return memory_content;
 }
 
-void instruction_mov_out(t_list *params, int client_socket,
-                         uint32_t physical_addres) {
+void instruction_mov_out(t_list *params, int client_socket, t_log *logger,
+                         uint32_t (*translate_address)(uint32_t),
+                         uint32_t pid) {
+
+  param *first_param = list_get(params, 0);
   param *second_param = list_get(params, 1);
 
+  uint32_t logical_address = *(uint32_t *)first_param->value;
+  uint32_t physical_address = translate_address(logical_address);
+
+  uint32_t write_value = *(uint32_t *)second_param->value;
   packet_t *req = packet_create(WRITE_DIR);
-  packet_add_uint32(req, physical_addres);
-  packet_add_uint32(req, *(uint32_t *)second_param->value);
+  packet_add_uint32(req, physical_address);
+  packet_add_uint32(req, pid);
+  packet_add_uint32(req, 4);
+
+  for (int i = 0; i < 4; i++)
+    packet_add_uint8(req, *((uint8_t *)second_param->value + i));
+
+  log_info(logger,
+           "PID: %u - Accion: ESCRITURA - Direccion fisica: %u - Valor: %u",
+           pid, physical_address, write_value);
   packet_send(req, client_socket);
   packet_destroy(req);
-
-  packet_t *res = packet_recieve(client_socket);
-  status_code memory_status = packet_read_uint32(res);
-  packet_destroy(res);
 }
 
 int instruction_resize(t_list *params, int client_socket, uint32_t pid) {
@@ -160,38 +178,34 @@ void instruction_copy_string(t_list *params, uint32_t *si, uint32_t *di) {
   param *first_param = list_get(params, 0);
 }
 
-void instruction_io_stdin(t_list *params, int socket,
-                          uint32_t (*translate_addres)(uint32_t)) {
+void instruction_io_stdin(t_list *params, packet_t *instruction_packet,
+                          uint32_t (*translate_addres)(uint32_t),
+                          uint32_t pid) {
 
   param *first_param = list_get(params, 0);
   param *second_param = list_get(params, 1);
   param *third_param = list_get(params, 2);
 
-  packet_t *req = packet_create(BLOCKING_OP);
-  packet_add_uint32(req, IO_STDIN_READ);
-  packet_add_string(req, (char *)first_param->value);
+  packet_add_string(instruction_packet, (char *)first_param->value);
 
-  packet_add_uint32(req, translate_addres(*(uint32_t *)second_param->value));
-  packet_add_uint32(req, *(uint32_t *)third_param->value);
-  packet_send(req, socket);
-
-  packet_destroy(req);
+  packet_add_uint32(instruction_packet,
+                    translate_addres(*(uint32_t *)second_param->value));
+  packet_add_uint32(instruction_packet, pid);
+  packet_add_uint32(instruction_packet, *(uint32_t *)third_param->value);
 }
 
-void instruction_io_stdout(t_list *params, int socket,
-                           uint32_t (*translate_addres)(uint32_t)) {
+void instruction_io_stdout(t_list *params, packet_t *instruction_packet,
+                           uint32_t (*translate_addres)(uint32_t),
+                           uint32_t pid) {
 
   param *first_param = list_get(params, 0);
   param *second_param = list_get(params, 1);
   param *third_param = list_get(params, 2);
 
-  packet_t *req = packet_create(BLOCKING_OP);
-  packet_add_uint32(req, IO_STDOUT_WRITE);
-  packet_add_string(req, (char *)first_param->value);
+  packet_add_string(instruction_packet, (char *)first_param->value);
 
-  packet_add_uint32(req, translate_addres(*(uint32_t *)second_param->value));
-  packet_add_uint32(req, *(uint32_t *)third_param->value);
-
-  packet_send(req, socket);
-  packet_destroy(req);
+  packet_add_uint32(instruction_packet,
+                    translate_addres(*(uint32_t *)second_param->value));
+  packet_add_uint32(instruction_packet, pid);
+  packet_add_uint32(instruction_packet, *(uint32_t *)third_param->value);
 }

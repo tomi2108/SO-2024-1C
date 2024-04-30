@@ -3,9 +3,11 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/socket.h>
 #include <utils/connection.h>
 #include <utils/exit.h>
+#include <utils/instruction.h>
 #include <utils/packet.h>
 #include <utils/status.h>
 
@@ -27,72 +29,73 @@ int block_size;
 int block_count;
 
 void interfaz_generica(packet_t *res) {
-  long tiempo_espera;
-  packet_read(res, &tiempo_espera, sizeof(long));
-  log_info(logger, "Esperando %ld segundos",
+  uint32_t tiempo_espera = packet_read_uint32(res);
+  log_info(logger, "Esperando %u segundos",
            (tiempo_espera * tiempo_unidad_trabajo_ms) / 1000);
   usleep(tiempo_unidad_trabajo_ms * tiempo_espera * 1000);
 }
 
-// TODO: se asume que la direccion fisica sera uint32_t verificar cuando se
-// realize el modulo memoria Probablemente agregar al paquete de req que se
-// intenta leer la direccion con un codigo_op correspondiente se asume que la
-// memoria responde con uint32 (el contenido de la direccion) verificar cuando
-// se realize el modulo memoria
 void interfaz_stdout(packet_t *res) {
   usleep(tiempo_unidad_trabajo_ms * 1000);
   uint32_t address = packet_read_uint32(res);
+  uint32_t pid = packet_read_uint32(res);
+  uint32_t size = packet_read_uint32(res);
+
   int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
   if (socket_memoria == -1)
     exit_client_connection_error(logger);
 
   packet_t *req = packet_create(READ_DIR);
   packet_add_uint32(req, address);
+  packet_add_uint32(req, pid);
+  packet_add_uint32(req, size);
+
   packet_send(req, socket_memoria);
   packet_destroy(req);
 
   packet_t *res_memoria = packet_recieve(socket_memoria);
+  uint8_t *memory_content = malloc(size + 1);
+  memset(memory_content, 0, size + 1);
+  for (int i = 0; i < size; i++) {
+    uint8_t byte = packet_read_uint8(req);
+    *(memory_content + i) = byte;
+  }
+
   connection_close(socket_memoria);
-  uint32_t memory_content = packet_read_uint32(res_memoria);
   packet_destroy(res_memoria);
 
-  log_info(logger, "Se leyo de memoria: %u de la direccion %u", memory_content,
+  log_info(logger, "Se leyo de memoria: %s de la direccion %u", memory_content,
            address);
+  free(memory_content);
 }
 
-// TODO: se asume que la direccion fisica sera uint32_t verificar cuando se
-// realize el modulo memoria Probablemente agregar al paquete de req que se
-// intenta escribir la direccion con un codigo_op correspondiente se asume que
-// la memoria responde con uint32 (codigo OK or ERR ??) verificar cuando se
-// realize el modulo memoria tambien se asume que la memoria puede procesar la
-// escritura de un char*
 void interfaz_stdin(packet_t *res) {
   uint32_t address = packet_read_uint32(res);
+  uint32_t pid = packet_read_uint32(res);
+  uint32_t size = packet_read_uint32(res);
+
   int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
   if (socket_memoria == -1)
     exit_client_connection_error(logger);
 
-  char *input = ""; // TODO: sanitizar el input de alguna forma... restringir
-                    // longitud quizas ?
+  log_info(logger, "Ingrese string a guardar en memoria");
+  char *input = NULL;
+  size_t length = 0;
+  length = getline(&input, &length, stdin);
+  input[length - 1] = '\0';
 
-  scanf("%s", input);
   packet_t *req = packet_create(WRITE_DIR);
-  packet_add_string(req, input);
+  packet_add_uint32(req, address);
+  packet_add_uint32(req, pid);
+  packet_add_uint32(req, size);
+
+  for (int i = 0; i < size; i++)
+    packet_add_uint8(req, *((uint8_t *)input + i));
+
   packet_send(req, socket_memoria);
   packet_destroy(req);
 
-  packet_t *res_memoria = packet_recieve(socket_memoria);
-  connection_close(socket_memoria);
-  uint8_t status = status_unpack(res_memoria);
-  packet_destroy(res);
-
-  if (status != OK)
-    log_error(logger,
-              "No se pudo escribir %s en la direccion %u, la memoria respondio "
-              "con un error",
-              input, address);
-  else
-    log_info(logger, "Se escribio %s en la direccion %u", input, address);
+  log_info(logger, "Se escribio %s en la direccion %u", input, address);
 }
 
 void interfaz_dialfs(packet_t *res) {}
@@ -124,7 +127,7 @@ int main(int argc, char *argv[]) {
 
   config = config_create(argv[1]);
   if (config == NULL)
-    exit_enoent_erorr(logger);
+    exit_enoent_error(logger, argv[1]);
 
   io_type = config_get_string_value(config, "TIPO_INTERFAZ");
   if (!is_io_type_supported())
@@ -152,11 +155,11 @@ int main(int argc, char *argv[]) {
     packet_t *res = packet_recieve(socket_kernel);
     if (strcmp(io_type, "generica") == 0) {
       interfaz_generica(res);
-    } else if (strcmp(io_type, "stdin")) {
+    } else if (strcmp(io_type, "stdin") == 0) {
       interfaz_stdin(res);
-    } else if (strcmp(io_type, "stdout")) {
+    } else if (strcmp(io_type, "stdout") == 0) {
       interfaz_stdout(res);
-    } else if (strcmp(io_type, "dialfs"))
+    } else if (strcmp(io_type, "dialfs") == 0)
       interfaz_dialfs(res);
     packet_destroy(res);
   }

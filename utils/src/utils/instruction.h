@@ -4,6 +4,7 @@
 #include "packet.h"
 #include "status.h"
 #include <commons/collections/list.h>
+#include <commons/log.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -89,36 +90,71 @@ void instruction_jnz(t_list *params, uint32_t *pc);
  * @param  socket Socket to send the resolution of IO_GEN_SLEEP
  * @brief  IO_GEN_SLEEP instruction implementation
  */
-void instruction_io_gen_sleep(t_list *params, int socket);
+void instruction_io_gen_sleep(t_list *params, packet_t *instruction_packet);
 
 /**
  * @fn     instruction_mov_in
- * @param  params Parameters to the MOV_IN instruction
- * @param  socket Socket to send the resolution of MOV_IN
- * @param  physical_address Address to read from
+ * @param  params             Parameters to the MOV_IN instruction
+ * @param  socket             Socket to send the resolution of MOV_IN
+ * @param  logger             Logger to log the execution
+ * @param  translate_address  Method to translate the address to physical
+ * @param  pid                Pid from process
  * @brief  MOV_IN instruction implementation
  */
-uint8_t instruction_mov_in(t_list *params, int client_socket,
-                           uint32_t physical_address);
+void instruction_mov_in(t_list *params, int client_socket, t_log *logger,
+                        uint32_t (*translate_address)(uint32_t), uint32_t pid);
 
 /**
  * @fn     instruction_mov_out
- * @param  params Parameters to the MOV_OUT instruction
- * @param  socket Socket to send the resolution of MOV_OUT
- * @param  physical_address Address to read from
+ * @param  params             Parameters to the MOV_OUT instruction
+ * @param  socket             Socket to send the resolution of MOV_OUT
+ * @param  logger             Logger to log the execution
+ * @param  translate_address  Method to translate the address to physical
+ * @param  pid                Pid from process
  * @brief  MOV_OUT instruction implementation
  */
-void instruction_mov_out(t_list *params, int client_socket,
-                         uint32_t physical_address);
+void instruction_mov_out(t_list *params, int client_socket, t_log *logger,
+                         uint32_t (*translate_address)(uint32_t), uint32_t pid);
 
+/**
+ * @fn     instruction_resize
+ * @param  params  Parameters to the RESIZE instruction
+ * @param  socket  Socket to send the resolution of RESIZE
+ * @param  pid     Pid from process
+ * @brief  RESIZE instruction implementation
+ */
 int instruction_resize(t_list *params, int client_socket, uint32_t pid);
 
+/**
+ * @fn     instruction_copy_string
+ * @param  params  Parameters to the COPY_STRING instruction
+ * @param  si      si register
+ * @param  di      di register
+ * @brief  COPY_STRING instruction implementation
+ */
 void instruction_copy_string(t_list *params, uint32_t *si, uint32_t *di);
 
-void instruction_io_stdin(t_list *params, int socket,
-                          uint32_t (*translate_addres)(uint32_t));
+/**
+ * @fn     instruction_io_stdin
+ * @param  params             Parameters to the IO_STDIN_READ instruction
+ * @param  socket             Socket to send the resolution of IO_STDIN_READ
+ * @param  translate_address  Method to translate the address to physical
+ * @param  pid                Pid from process
+ * @brief  IO_STDIN_READ instruction implementation
+ */
+void instruction_io_stdin(t_list *params, packet_t *instruction_packet,
+                          uint32_t (*translate_addres)(uint32_t), uint32_t pid);
 
-void instruction_io_stdout(t_list *params, int socket,
-                           uint32_t (*translate_addres)(uint32_t));
+/**
+ * @fn     instruction_io_stdout
+ * @param  params             Parameters to the IO_STDOUT_WRITE instruction
+ * @param  socket             Socket to send the resolution of IO_STDOUT_WRITE
+ * @param  translate_address  Method to translate the address to physical
+ * @param  pid                Pid from process
+ * @brief  IO_STDOUT_WRITE instruction implementation
+ */
+void instruction_io_stdout(t_list *params, packet_t *instruction_packet,
+                           uint32_t (*translate_addres)(uint32_t),
+                           uint32_t pid);
 
 #endif
