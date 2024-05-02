@@ -62,9 +62,9 @@ process_t process_unpack(packet_t *packet) {
   return process;
 }
 
-void process_print(process_t process) {
-  printf("Pid:%u Path de instrucciones:%s Program counter:%u\n", process.pid,
-         process.path, process.program_counter);
+void process_print(process_t process, char *status) {
+  printf("Pid:%u Status:%s Path de instrucciones:%s \n", process.pid, status,
+         process.path);
 }
 
 process_t *process_dup(process_t p_to_dup) {

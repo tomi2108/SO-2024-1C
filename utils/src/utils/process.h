@@ -59,9 +59,10 @@ process_t process_unpack(packet_t *packet);
 /**
  * @fn    process_print
  * @param process Process to print
+ * @param status  Process Status
  * @brief Prints a process to sdout
  */
-void process_print(process_t process);
+void process_print(process_t process, char *status);
 
 /**
  * @fn    process_dup

@@ -31,7 +31,9 @@ typedef struct {
   int socket;
   char *type;
   int queue_index;
+  sem_t sem_queue_full;
 } io;
+
 t_dictionary *io_dict;
 
 void exec_script(char *path);
@@ -86,48 +88,19 @@ sem_t sem_scheduler;
 void free_io(void *e) {
   io *interface = (io *)e;
   free(interface->type);
+  sem_destroy(&interface->sem_queue_full);
   free(interface);
 }
 
-// uint8_t is_multiprogramming_full() {
-//   int procesos_en_memoria = queue_size(ready_queue);
-//   if (exec != NULL)
-//     procesos_en_memoria++;
-//   // los bloqueados cuentan ??
-//   pthread_mutex_lock(&mutex_multiprogramacion);
-//   uint8_t is_full = procesos_en_memoria >= grado_multiprogramacion;
-//   pthread_mutex_unlock(&mutex_multiprogramacion);
-//   return is_full;
-// }
-//
-// void queue_push_ready_or_new(process_t *process) {
-//
-//   if (is_multiprogramming_full()) {
-//     pthread_mutex_lock(&mutex_new);
-//     queue_push(new_queue, process);
-//     pthread_mutex_unlock(&mutex_new);
-//
-//   } else {
-//     pthread_mutex_lock(&mutex_ready);
-//     queue_push(ready_queue, process);
-//     pthread_mutex_unlock(&mutex_ready);
-//
-//     log_info(logger,
-//              "Se agrega el proceso %d a READY porque el grado de "
-//              "multiprogramacion lo permite",
-//              process->pid);
-//   }
-// }
-
-void print_process_queue(t_queue *queue, char *name) {
+void print_process_queue(t_queue *queue, char *status) {
   if (queue_is_empty(queue)) {
-    printf("La cola %s esta vacia\n", name);
+    printf("La cola %s esta vacia\n", status);
     return;
   }
 
   process_t *head = queue_pop(queue);
   uint32_t head_pid = head->pid;
-  process_print(*head);
+  process_print(*head, status);
   queue_push(queue, head);
 
   process_t *aux_process = queue_peek(queue);
@@ -135,7 +108,7 @@ void print_process_queue(t_queue *queue, char *name) {
 
   while (aux_pid != head_pid) {
     aux_process = queue_pop(queue);
-    process_print(*aux_process);
+    process_print(*aux_process, status);
     queue_push(queue, aux_process);
     aux_process = queue_peek(queue);
     aux_pid = aux_process->pid;
@@ -176,7 +149,30 @@ void response_register_io(packet_t *request, int io_socket) {
   pthread_mutex_unlock(&mutex_blocked);
 
   interfaz->queue_index = index;
+  sem_init(&interfaz->sem_queue_full, 1, 0);
+  pthread_mutex_lock(&mutex_io_dict);
   dictionary_put(io_dict, nombre, interfaz);
+  pthread_mutex_unlock(&mutex_io_dict);
+
+  while (1) {
+    sem_wait(&interfaz->sem_queue_full);
+    packet_t *packet = packet_recieve(interfaz->socket);
+    status_code status = status_unpack(packet);
+    if (status == OK) {
+      pthread_mutex_lock(&mutex_blocked);
+      t_queue *blocked_queue = list_get(blocked, interfaz->queue_index);
+      process_t *blocked_process = queue_pop(blocked_queue);
+      pthread_mutex_unlock(&mutex_blocked);
+
+      pthread_mutex_lock(&mutex_ready);
+      queue_push(ready_queue, blocked_process);
+      pthread_mutex_unlock(&mutex_ready);
+
+      sem_post(&sem_ready_full);
+      log_info(logger, "Se envia el proceso %u de BLOCKED a READY",
+               blocked_process->pid);
+    }
+  }
 }
 
 void *atender_cliente(void *args) {
@@ -217,7 +213,7 @@ void init_process(char *path) {
     log_info(logger, "Se crea el proceso %d en NEW", new_process->pid);
     next_pid++;
   } else if (res_status == NOT_FOUND) {
-    log_error(logger, "El archivo %s no existe", path);
+    log_warning(logger, "El archivo %s no existe", path);
   }
 };
 
@@ -241,29 +237,6 @@ process_t *request_cpu_interrupt(int interrupt, int socket_cpu_dispatch) {
   return p;
 }
 
-void *unblock_process(void *args) {
-  char *nombre = (char *)args;
-  io *interfaz = dictionary_get(io_dict, nombre);
-  packet_t *packet = packet_recieve(interfaz->socket);
-  status_code status = status_unpack(packet);
-  if (status == OK) {
-    pthread_mutex_lock(&mutex_blocked);
-    t_queue *blocked_queue = list_get(blocked, interfaz->queue_index);
-    process_t *blocked_process = queue_pop(blocked_queue);
-    pthread_mutex_unlock(&mutex_blocked);
-
-    sem_wait(&sem_ready_empty);
-    pthread_mutex_lock(&mutex_ready);
-
-    queue_push(ready_queue, blocked_process);
-
-    pthread_mutex_unlock(&mutex_ready);
-    sem_post(&sem_ready_full);
-  }
-  free(args);
-  return EXIT_SUCCESS;
-}
-
 void response_io_gen_sleep(packet_t *res, char *nombre) {
   io *interfaz = dictionary_get(io_dict, nombre);
   packet_t *io_res = packet_create(REGISTER_IO);
@@ -274,11 +247,6 @@ void response_io_gen_sleep(packet_t *res, char *nombre) {
 
   packet_send(io_res, interfaz->socket);
   packet_destroy(io_res);
-
-  pthread_t wait_for_io_thread;
-  char *arg = strdup(nombre);
-  pthread_create(&wait_for_io_thread, NULL, &unblock_process, arg);
-  pthread_detach(wait_for_io_thread);
 }
 
 void response_io_stdin(packet_t *res, char *nombre) {
@@ -295,11 +263,6 @@ void response_io_stdin(packet_t *res, char *nombre) {
 
   packet_send(io_res, interfaz->socket);
   packet_destroy(io_res);
-
-  pthread_t wait_for_io_thread;
-  char *arg = strdup(nombre);
-  pthread_create(&wait_for_io_thread, NULL, &unblock_process, arg);
-  pthread_detach(wait_for_io_thread);
 }
 
 void response_io_stdout(packet_t *res, char *nombre) {
@@ -316,11 +279,6 @@ void response_io_stdout(packet_t *res, char *nombre) {
 
   packet_send(io_res, interfaz->socket);
   packet_destroy(io_res);
-
-  pthread_t wait_for_io_thread;
-  char *arg = strdup(nombre);
-  pthread_create(&wait_for_io_thread, NULL, &unblock_process, arg);
-  pthread_detach(wait_for_io_thread);
 }
 
 process_t *wait_process_exec(int socket_cpu_dispatch, interrupt *exit,
@@ -428,10 +386,12 @@ void planificacion_fifo() {
     pthread_mutex_lock(&mutex_blocked);
     t_queue *blocked_queue = list_get(blocked, interfaz->queue_index);
     queue_push(blocked_queue, updated_process);
+    sem_post(&interfaz->sem_queue_full);
     pthread_mutex_unlock(&mutex_blocked);
+    log_info(logger, "Se envia el proceso %u a BLOCKED de la interfaz %s",
+             updated_process->pid, name);
   }
   free(name);
-
   connection_close(socket_cpu_dispatch);
 }
 
@@ -513,7 +473,7 @@ void *scheduler() {
 
 void stop_scheduler(void) {
   if (is_scheduler_running == 0) {
-    log_error(logger, "El Scheduler ya fue detenido");
+    log_warning(logger, "El Scheduler ya fue detenido");
   } else {
     is_scheduler_running = 0;
     sem_wait(&sem_scheduler);
@@ -522,7 +482,7 @@ void stop_scheduler(void) {
 
 void start_scheduler(void) {
   if (is_scheduler_running == 1) {
-    log_error(logger, "El Scheduler ya fue iniciado");
+    log_warning(logger, "El Scheduler ya fue iniciado");
   } else {
     is_scheduler_running = 1;
     sem_post(&sem_scheduler);
@@ -566,7 +526,39 @@ void list_processes(void) {
   pthread_mutex_lock(&mutex_ready);
   print_process_queue(ready_queue, "READY");
   pthread_mutex_unlock(&mutex_ready);
-  // imprimir el resto de procesos
+
+  pthread_mutex_lock(&mutex_exec);
+  if (exec != NULL) {
+    process_print(*exec, "EXEC");
+  } else {
+    printf("No hay ningun proceso en EXEC\n");
+  }
+  pthread_mutex_unlock(&mutex_exec);
+
+  pthread_mutex_lock(&mutex_blocked);
+  if (list_size(blocked) == 0) {
+    printf("No hay colas de BLOCKED\n");
+  }
+
+  t_list_iterator *blocked_iterator = list_iterator_create(blocked);
+  while (list_iterator_has_next(blocked_iterator)) {
+    t_queue *blocked_queue = list_iterator_next(blocked_iterator);
+    print_process_queue(blocked_queue, "BLOCKED");
+  }
+  pthread_mutex_unlock(&mutex_blocked);
+  list_iterator_destroy(blocked_iterator);
+
+  pthread_mutex_lock(&mutex_finished);
+  if (list_size(finished) == 0) {
+    printf("La lista de FINISHED esta vacia\n");
+  }
+  t_list_iterator *finished_iterator = list_iterator_create(finished);
+  while (list_iterator_has_next(finished_iterator)) {
+    process_t *finished_process = list_iterator_next(finished_iterator);
+    process_print(*finished_process, "FINISHED");
+  }
+  pthread_mutex_unlock(&mutex_finished);
+  list_iterator_destroy(finished_iterator);
 };
 
 // FOR DEBUGGING
@@ -684,7 +676,7 @@ void *consola_interactiva(void *args) {
     param p;
     command_op op = decode_command(input, &p);
     if (op == UNKNOWN_COMMAND) {
-      log_error(logger, "%s is not a command", input);
+      log_warning(logger, "%s is not a command", input);
       continue;
     }
 
