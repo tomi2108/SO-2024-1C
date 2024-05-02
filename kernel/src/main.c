@@ -378,6 +378,7 @@ void send_new_to_ready() {
   pthread_mutex_lock(&mutex_ready);
   queue_push(ready_queue, p);
   pthread_mutex_unlock(&mutex_ready);
+  log_info(logger, "Se envia el proceso %u a READY", p->pid);
 }
 
 void planificacion_fifo() {
@@ -401,6 +402,7 @@ void planificacion_fifo() {
   process_t *updated_process = NULL;
   interrupt exit;
   char *name = NULL;
+  log_info(logger, "Se envia el proceso %u a EXEC", exec->pid);
   while (updated_process == NULL)
     updated_process = wait_process_exec(socket_cpu_dispatch, &exit, &name);
 
@@ -456,8 +458,6 @@ void *scheduler_helper() {
         break;
       }
 
-      log_info(logger, "Running scheduler helper....");
-
       pthread_mutex_lock(&mutex_multiprogramacion);
       send_new_to_ready();
       pthread_mutex_unlock(&mutex_multiprogramacion);
@@ -495,8 +495,6 @@ void *scheduler() {
         sem_post(&sem_exec_empty);
         break;
       }
-
-      log_info(logger, "Running scheduler....");
 
       if (strcmp(algoritmo_planificacion, "fifo") == 0)
         planificacion_fifo();
