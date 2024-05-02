@@ -393,7 +393,6 @@ void planificacion_fifo() {
   pthread_mutex_unlock(&mutex_ready);
   pthread_mutex_unlock(&mutex_exec);
   sem_post(&sem_exec_full);
-  sem_post(&sem_ready_empty);
 
   packet_t *request = process_pack(*exec);
   packet_send(request, socket_cpu_dispatch);
@@ -421,6 +420,7 @@ void planificacion_fifo() {
     pthread_mutex_lock(&mutex_finished);
     list_add(finished, updated_process);
     pthread_mutex_unlock(&mutex_finished);
+    sem_post(&sem_ready_empty);
   } else if (exit == BLOCK) {
     io *interfaz = dictionary_get(io_dict, name);
     pthread_mutex_lock(&mutex_blocked);
@@ -457,7 +457,11 @@ void *scheduler_helper() {
       }
 
       log_info(logger, "Running scheduler helper....");
+
+      pthread_mutex_lock(&mutex_multiprogramacion);
       send_new_to_ready();
+      pthread_mutex_unlock(&mutex_multiprogramacion);
+
       sem_post(&sem_ready_full);
 
       pthread_mutex_lock(&mutex_scheduler);
@@ -529,7 +533,23 @@ void start_scheduler(void) {
 
 void change_multiprogramming(uint32_t new_value) {
   pthread_mutex_lock(&mutex_multiprogramacion);
+  if (grado_multiprogramacion == new_value) {
+    pthread_mutex_unlock(&mutex_multiprogramacion);
+    return;
+  }
+  log_info(logger, "Cambiando multiprogramacion a %u", new_value);
+  int reduce = grado_multiprogramacion > new_value;
+  if (reduce) {
+    int difference = grado_multiprogramacion - new_value;
+    for (int i = 0; i < difference; i++)
+      sem_wait(&sem_ready_empty);
+  } else {
+    int difference = new_value - grado_multiprogramacion;
+    for (int i = 0; i < difference; i++)
+      sem_post(&sem_ready_empty);
+  }
   grado_multiprogramacion = new_value;
+  log_info(logger, "Multi programacion cambiada a %u", new_value);
   pthread_mutex_unlock(&mutex_multiprogramacion);
 }
 
@@ -733,7 +753,7 @@ int main(int argc, char *argv[]) {
   pthread_mutex_init(&mutex_scheduler, NULL);
 
   sem_init(&sem_ready_full, 1, 0);
-  sem_init(&sem_ready_empty, 1, grado_multiprogramacion - 1);
+  sem_init(&sem_ready_empty, 1, grado_multiprogramacion);
   sem_init(&sem_new_full, 1, 0);
   sem_init(&sem_exec_full, 1, 0);
   sem_init(&sem_exec_empty, 1, 1);
