@@ -23,8 +23,8 @@
 #define FILE_LINE_MAX_LENGTH 80
 
 typedef enum {
-  BLOCK,
-  FINISH,
+  BLOCK = 1,
+  FINISH = 2,
 } interrupt;
 
 typedef struct {
@@ -67,7 +67,6 @@ t_list *blocked;
 t_list *finished;
 
 pthread_mutex_t mutex_io_dict;
-pthread_mutex_t mutex_algoritmo_planificacion;
 pthread_mutex_t mutex_multiprogramacion;
 pthread_mutex_t mutex_scheduler;
 
@@ -132,6 +131,13 @@ status_code request_init_process(char *path) {
   return status_code;
 }
 
+void send_to_ready(process_t *process) {
+  pthread_mutex_lock(&mutex_ready);
+  queue_push(ready_queue, process);
+  pthread_mutex_unlock(&mutex_ready);
+  sem_post(&sem_ready_full);
+}
+
 void response_register_io(packet_t *request, int io_socket) {
   char *nombre = packet_read_string(request);
   char *tipo_interfaz = packet_read_string(request);
@@ -164,11 +170,8 @@ void response_register_io(packet_t *request, int io_socket) {
       process_t *blocked_process = queue_pop(blocked_queue);
       pthread_mutex_unlock(&mutex_blocked);
 
-      pthread_mutex_lock(&mutex_ready);
-      queue_push(ready_queue, blocked_process);
-      pthread_mutex_unlock(&mutex_ready);
+      send_to_ready(blocked_process);
 
-      sem_post(&sem_ready_full);
       log_info(logger, "Se envia el proceso %u de BLOCKED a READY",
                blocked_process->pid);
     }
@@ -288,7 +291,7 @@ process_t *wait_process_exec(int socket_cpu_dispatch, interrupt *exit,
   case INSTRUCTION: {
     instruction_op op = packet_read_uint32(res);
     if (!instruction_is_blocking(op))
-      return request_cpu_interrupt(0, socket_cpu_dispatch);
+      return NULL;
 
     char *nombre = packet_read_string(res);
     *name = strdup(nombre);
@@ -315,6 +318,7 @@ process_t *wait_process_exec(int socket_cpu_dispatch, interrupt *exit,
     }
   }
   case PROCESS: {
+    // en caso que el proceso termine sin ejecutar nada
     process_t updated_process = process_unpack(res);
     packet_destroy(res);
     *exit = FINISH;
@@ -327,28 +331,27 @@ process_t *wait_process_exec(int socket_cpu_dispatch, interrupt *exit,
   return NULL;
 }
 
+void block_if_scheduler_off() {
+  sem_wait(&sem_scheduler);
+  sem_post(&sem_scheduler);
+}
+
 void send_new_to_ready() {
 
   pthread_mutex_lock(&mutex_new);
   process_t *p = queue_pop(new_queue);
   pthread_mutex_unlock(&mutex_new);
 
-  pthread_mutex_lock(&mutex_ready);
-  queue_push(ready_queue, p);
-  pthread_mutex_unlock(&mutex_ready);
+  send_to_ready(p);
+
   log_info(logger, "Se envia el proceso %u a READY", p->pid);
 }
 
-void planificacion_fifo() {
-
-  int socket_cpu_dispatch =
-      connection_create_client(ip_cpu, puerto_cpu_dispatch);
-  if (socket_cpu_dispatch == -1)
-    exit_client_connection_error(logger);
-
+void send_process_to_exec(int socket_cpu_dispatch) {
   pthread_mutex_lock(&mutex_exec);
   pthread_mutex_lock(&mutex_ready);
   exec = queue_pop(ready_queue);
+  log_info(logger, "Se envia el proceso %u a EXEC", exec->pid);
   pthread_mutex_unlock(&mutex_ready);
   pthread_mutex_unlock(&mutex_exec);
   sem_post(&sem_exec_full);
@@ -356,51 +359,114 @@ void planificacion_fifo() {
   packet_t *request = process_pack(*exec);
   packet_send(request, socket_cpu_dispatch);
   packet_destroy(request);
+}
 
-  process_t *updated_process = NULL;
-  interrupt exit;
-  char *name = NULL;
-  log_info(logger, "Se envia el proceso %u a EXEC", exec->pid);
-  while (updated_process == NULL)
-    updated_process = wait_process_exec(socket_cpu_dispatch, &exit, &name);
-
+void empty_exec() {
   sem_wait(&sem_exec_full);
   pthread_mutex_lock(&mutex_exec);
   exec = NULL;
   pthread_mutex_unlock(&mutex_exec);
   sem_post(&sem_exec_empty);
+}
 
-  sem_wait(&sem_scheduler);
-  sem_post(&sem_scheduler);
+void end_process(process_t *process) {
+  free_process(process->pid);
+  log_info(logger, "Finaliza el proceso %u", process->pid);
 
-  if (exit == FINISH) {
-    free_process(updated_process->pid);
-    log_info(logger, "Finaliza el proceso %u", updated_process->pid);
-    fflush(stdout);
-    pthread_mutex_lock(&mutex_finished);
-    list_add(finished, updated_process);
-    pthread_mutex_unlock(&mutex_finished);
-    sem_post(&sem_ready_empty);
-  } else if (exit == BLOCK) {
-    io *interfaz = dictionary_get(io_dict, name);
-    pthread_mutex_lock(&mutex_blocked);
-    t_queue *blocked_queue = list_get(blocked, interfaz->queue_index);
-    queue_push(blocked_queue, updated_process);
-    sem_post(&interfaz->sem_queue_full);
-    pthread_mutex_unlock(&mutex_blocked);
-    log_info(logger, "Se envia el proceso %u a BLOCKED de la interfaz %s",
-             updated_process->pid, name);
+  printf("Termina la terminacion");
+  pthread_mutex_lock(&mutex_finished);
+  list_add(finished, process);
+  pthread_mutex_unlock(&mutex_finished);
+
+  sem_post(&sem_ready_empty);
+}
+
+void block_process(char *io_name, process_t *process) {
+  pthread_mutex_lock(&mutex_io_dict);
+  io *interfaz = dictionary_get(io_dict, io_name);
+  pthread_mutex_unlock(&mutex_io_dict);
+
+  pthread_mutex_lock(&mutex_blocked);
+  t_queue *blocked_queue = list_get(blocked, interfaz->queue_index);
+  queue_push(blocked_queue, process);
+  sem_post(&interfaz->sem_queue_full);
+  pthread_mutex_unlock(&mutex_blocked);
+  log_info(logger, "Se envia el proceso %u a BLOCKED de la interfaz %s",
+           process->pid, io_name);
+}
+
+void planificacion_rr() {
+  int socket_cpu_dispatch =
+      connection_create_client(ip_cpu, puerto_cpu_dispatch);
+  if (socket_cpu_dispatch == -1)
+    exit_client_connection_error(logger);
+
+  send_process_to_exec(socket_cpu_dispatch);
+
+  process_t *updated_process = NULL;
+  interrupt exit = 0;
+  char *name = NULL;
+  int quantum_left = initial_quantum;
+
+  while (updated_process == NULL && quantum_left > 0) {
+    updated_process = wait_process_exec(socket_cpu_dispatch, &exit, &name);
+    quantum_left--;
+
+    if (quantum_left > 0 && updated_process == NULL)
+      request_cpu_interrupt(0, socket_cpu_dispatch);
   }
+
+  block_if_scheduler_off();
+  empty_exec();
+
+  if (quantum_left == 0) {
+    updated_process = request_cpu_interrupt(1, socket_cpu_dispatch);
+    send_to_ready(updated_process);
+    log_info(logger, "Se envia el proceso %u a READY por fin de quantum",
+             updated_process->pid);
+  } else if (exit == FINISH) {
+    end_process(updated_process);
+  } else if (exit == BLOCK)
+    block_process(name, updated_process);
+  free(name);
+
+  connection_close(socket_cpu_dispatch);
+}
+
+void planificacion_fifo() {
+  int socket_cpu_dispatch =
+      connection_create_client(ip_cpu, puerto_cpu_dispatch);
+  if (socket_cpu_dispatch == -1)
+    exit_client_connection_error(logger);
+
+  send_process_to_exec(socket_cpu_dispatch);
+
+  process_t *updated_process = NULL;
+  interrupt exit = 0;
+  char *name = NULL;
+
+  while (updated_process == NULL) {
+    updated_process = wait_process_exec(socket_cpu_dispatch, &exit, &name);
+    if (updated_process == NULL)
+      request_cpu_interrupt(0, socket_cpu_dispatch);
+  }
+
+  block_if_scheduler_off();
+  empty_exec();
+
+  if (exit == FINISH)
+    end_process(updated_process);
+  else if (exit == BLOCK)
+    block_process(name, updated_process);
+
   free(name);
   connection_close(socket_cpu_dispatch);
 }
 
-void end_process(void) {}
-
 void *scheduler_helper() {
   while (1) {
-    sem_wait(&sem_scheduler);
-    sem_post(&sem_scheduler);
+    block_if_scheduler_off();
+
     pthread_mutex_lock(&mutex_scheduler);
     int run = is_scheduler_running;
     pthread_mutex_unlock(&mutex_scheduler);
@@ -422,8 +488,6 @@ void *scheduler_helper() {
       send_new_to_ready();
       pthread_mutex_unlock(&mutex_multiprogramacion);
 
-      sem_post(&sem_ready_full);
-
       pthread_mutex_lock(&mutex_scheduler);
       run = is_scheduler_running;
       pthread_mutex_unlock(&mutex_scheduler);
@@ -436,8 +500,7 @@ void *scheduler() {
   pthread_t helper;
   pthread_create(&helper, NULL, &scheduler_helper, NULL);
   while (1) {
-    sem_wait(&sem_scheduler);
-    sem_post(&sem_scheduler);
+    block_if_scheduler_off();
 
     pthread_mutex_lock(&mutex_scheduler);
     int run = is_scheduler_running;
@@ -456,12 +519,13 @@ void *scheduler() {
         break;
       }
 
-      if (strcmp(algoritmo_planificacion, "fifo") == 0)
+      if (strcmp(algoritmo_planificacion, "FIFO") == 0) {
         planificacion_fifo();
-      else if (strcmp(algoritmo_planificacion, "rr") == 0)
+      } else if (strcmp(algoritmo_planificacion, "RR") == 0) {
+        planificacion_rr();
+      } else if (strcmp(algoritmo_planificacion, "VRR") == 0) {
         planificacion_fifo();
-      else if (strcmp(algoritmo_planificacion, "wr") == 0)
-        planificacion_fifo();
+      }
 
       pthread_mutex_lock(&mutex_scheduler);
       run = is_scheduler_running;
@@ -512,10 +576,9 @@ void change_multiprogramming(uint32_t new_value) {
 }
 
 void finish_process(uint32_t pid) {
-  // sacarlo de la cola o estado donde se encuentre
-
-  // liberar su memoria
-  free_process(pid);
+  // buscar el proceso en base al pid... recorrer las listas supongo .. ?
+  // process_t *process;
+  // end_process(process);
 }
 
 void list_processes(void) {
@@ -561,23 +624,6 @@ void list_processes(void) {
   list_iterator_destroy(finished_iterator);
 };
 
-// FOR DEBUGGING
-void read_addr(uint32_t addr) {
-  int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
-  packet_t *req = packet_create(READ_DIR);
-
-  packet_add_uint32(req, addr);
-  packet_add_uint32(req, 0);
-  packet_add_uint32(req, 1);
-  packet_send(req, socket_memoria);
-  packet_destroy(req);
-
-  packet_t *res = packet_recieve(socket_memoria);
-  uint8_t memory_content = packet_read_uint8(res);
-
-  log_debug(logger, "ADDRESS: %u VALUE: %u", addr, memory_content);
-}
-
 void exec_command(command_op op, param p) {
   switch (op) {
   case EXEC_SCRIPT:
@@ -600,10 +646,6 @@ void exec_command(command_op op, param p) {
     break;
   case FINISH_PROCESS:
     finish_process(*(uint32_t *)p.value);
-    break;
-    // FOR DEBUGGING
-  case READ_ADDR:
-    read_addr(*(uint32_t *)p.value);
     break;
   default:
     break;
@@ -709,9 +751,9 @@ int main(int argc, char *argv[]) {
 
   algoritmo_planificacion =
       config_get_string_value(config, "ALGORITMO_PLANIFICACION");
-  if (strcmp(algoritmo_planificacion, "fifo") != 0 &&
-      strcmp(algoritmo_planificacion, "rr") != 0 &&
-      strcmp(algoritmo_planificacion, "vr") != 0)
+  if (strcmp(algoritmo_planificacion, "FIFO") != 0 &&
+      strcmp(algoritmo_planificacion, "RR") != 0 &&
+      strcmp(algoritmo_planificacion, "VRR") != 0)
     exit_config_field_error(logger, "ALGORITMO_PLANIFICACION");
 
   initial_quantum = config_get_int_value(config, "QUANTUM");
@@ -738,7 +780,6 @@ int main(int argc, char *argv[]) {
   pthread_mutex_init(&mutex_exec, NULL);
   pthread_mutex_init(&mutex_finished, NULL);
   pthread_mutex_init(&mutex_multiprogramacion, NULL);
-  pthread_mutex_init(&mutex_algoritmo_planificacion, NULL);
   pthread_mutex_init(&mutex_io_dict, NULL);
   pthread_mutex_init(&mutex_scheduler, NULL);
 
@@ -779,8 +820,6 @@ int main(int argc, char *argv[]) {
   pthread_mutex_destroy(&mutex_finished);
   pthread_mutex_destroy(&mutex_io_dict);
   pthread_mutex_destroy(&mutex_multiprogramacion);
-  pthread_mutex_destroy(&mutex_algoritmo_planificacion);
-  pthread_mutex_destroy(&mutex_algoritmo_planificacion);
 
   sem_destroy(&sem_ready_empty);
   sem_destroy(&sem_ready_full);
