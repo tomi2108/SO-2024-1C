@@ -65,6 +65,7 @@ t_queue *ready_queue;
 process_t *exec = NULL;
 t_list *blocked;
 t_list *finished;
+t_queue *vrr_aux_queue;
 
 pthread_mutex_t mutex_io_dict;
 pthread_mutex_t mutex_multiprogramacion;
@@ -75,6 +76,7 @@ pthread_mutex_t mutex_ready;
 pthread_mutex_t mutex_exec;
 pthread_mutex_t mutex_blocked;
 pthread_mutex_t mutex_finished;
+pthread_mutex_t mutex_vrr_aux;
 
 sem_t sem_ready_empty;
 sem_t sem_ready_full;
@@ -138,6 +140,32 @@ void send_to_ready(process_t *process) {
   sem_post(&sem_ready_full);
 }
 
+void send_to_vrr_aux(process_t *process) {
+  pthread_mutex_lock(&mutex_vrr_aux);
+  queue_push(vrr_aux_queue, process);
+  pthread_mutex_unlock(&mutex_vrr_aux);
+  sem_post(&sem_ready_full);
+}
+
+void send_vrr_aux_to_exec(int socket_cpu_dispatch) {
+  pthread_mutex_lock(&mutex_exec);
+  pthread_mutex_lock(&mutex_vrr_aux);
+  if (queue_size(vrr_aux_queue) > 0) {
+    exec = queue_pop(vrr_aux_queue);
+    log_info(logger, "Se envia el proceso %u a EXEC", exec->pid);
+    pthread_mutex_unlock(&mutex_vrr_aux);
+    pthread_mutex_unlock(&mutex_exec);
+    sem_post(&sem_exec_full);
+
+    packet_t *request = process_pack(*exec);
+    packet_send(request, socket_cpu_dispatch);
+    packet_destroy(request);
+    return;
+  }
+  pthread_mutex_unlock(&mutex_vrr_aux);
+  pthread_mutex_unlock(&mutex_exec);
+}
+
 void response_register_io(packet_t *request, int io_socket) {
   char *nombre = packet_read_string(request);
   char *tipo_interfaz = packet_read_string(request);
@@ -170,8 +198,14 @@ void response_register_io(packet_t *request, int io_socket) {
       process_t *blocked_process = queue_pop(blocked_queue);
       pthread_mutex_unlock(&mutex_blocked);
 
+      if (strcmp(algoritmo_planificacion, "VRR") == 0) {
+        send_to_vrr_aux(blocked_process);
+        log_info(logger,
+                 "Se envia el proceso %u de BLOCKED a la cola auxiliar de VRR",
+                 blocked_process->pid);
+        continue;
+      }
       send_to_ready(blocked_process);
-
       log_info(logger, "Se envia el proceso %u de BLOCKED a READY",
                blocked_process->pid);
     }
@@ -347,7 +381,7 @@ void send_new_to_ready() {
   log_info(logger, "Se envia el proceso %u a READY", p->pid);
 }
 
-void send_process_to_exec(int socket_cpu_dispatch) {
+void send_ready_to_exec(int socket_cpu_dispatch) {
   pthread_mutex_lock(&mutex_exec);
   pthread_mutex_lock(&mutex_ready);
   exec = queue_pop(ready_queue);
@@ -395,13 +429,61 @@ void block_process(char *io_name, process_t *process) {
            process->pid, io_name);
 }
 
+void planificacion_vrr() {
+  int socket_cpu_dispatch =
+      connection_create_client(ip_cpu, puerto_cpu_dispatch);
+  if (socket_cpu_dispatch == -1)
+    exit_client_connection_error(logger);
+
+  send_vrr_aux_to_exec(socket_cpu_dispatch);
+
+  pthread_mutex_lock(&mutex_exec);
+  if (exec == NULL) {
+    pthread_mutex_unlock(&mutex_exec);
+    send_ready_to_exec(socket_cpu_dispatch);
+  } else
+    pthread_mutex_unlock(&mutex_exec);
+
+  process_t *updated_process = NULL;
+  interrupt exit = 0;
+  char *name = NULL;
+
+  pthread_mutex_lock(&mutex_exec);
+  int quantum_left = exec->quantum == 0 ? initial_quantum : exec->quantum;
+  pthread_mutex_unlock(&mutex_exec);
+
+  while (updated_process == NULL && quantum_left > 0) {
+    updated_process = wait_process_exec(socket_cpu_dispatch, &exit, &name);
+    quantum_left--;
+
+    if (quantum_left > 0 && updated_process == NULL)
+      request_cpu_interrupt(0, socket_cpu_dispatch);
+  }
+
+  block_if_scheduler_off();
+  empty_exec();
+
+  if (quantum_left == 0) {
+    updated_process = request_cpu_interrupt(1, socket_cpu_dispatch);
+    send_to_ready(updated_process);
+    log_info(logger, "Se envia el proceso %u a READY por fin de quantum",
+             updated_process->pid);
+  } else if (exit == FINISH) {
+    end_process(updated_process);
+  } else if (exit == BLOCK)
+    block_process(name, updated_process);
+  free(name);
+
+  connection_close(socket_cpu_dispatch);
+}
+
 void planificacion_rr() {
   int socket_cpu_dispatch =
       connection_create_client(ip_cpu, puerto_cpu_dispatch);
   if (socket_cpu_dispatch == -1)
     exit_client_connection_error(logger);
 
-  send_process_to_exec(socket_cpu_dispatch);
+  send_ready_to_exec(socket_cpu_dispatch);
 
   process_t *updated_process = NULL;
   interrupt exit = 0;
@@ -439,7 +521,7 @@ void planificacion_fifo() {
   if (socket_cpu_dispatch == -1)
     exit_client_connection_error(logger);
 
-  send_process_to_exec(socket_cpu_dispatch);
+  send_ready_to_exec(socket_cpu_dispatch);
 
   process_t *updated_process = NULL;
   interrupt exit = 0;
@@ -768,6 +850,8 @@ int main(int argc, char *argv[]) {
   exec = NULL;
   blocked = list_create();
   finished = list_create();
+  if (strcmp(algoritmo_planificacion, "VRR") == 0)
+    vrr_aux_queue = queue_create();
 
   io_dict = dictionary_create();
 
@@ -782,6 +866,8 @@ int main(int argc, char *argv[]) {
   pthread_mutex_init(&mutex_multiprogramacion, NULL);
   pthread_mutex_init(&mutex_io_dict, NULL);
   pthread_mutex_init(&mutex_scheduler, NULL);
+  if (strcmp(algoritmo_planificacion, "VRR") == 0)
+    pthread_mutex_init(&mutex_vrr_aux, NULL);
 
   sem_init(&sem_ready_full, 1, 0);
   sem_init(&sem_ready_empty, 1, grado_multiprogramacion);
@@ -820,6 +906,8 @@ int main(int argc, char *argv[]) {
   pthread_mutex_destroy(&mutex_finished);
   pthread_mutex_destroy(&mutex_io_dict);
   pthread_mutex_destroy(&mutex_multiprogramacion);
+  if (strcmp(algoritmo_planificacion, "VRR") == 0)
+    pthread_mutex_destroy(&mutex_vrr_aux);
 
   sem_destroy(&sem_ready_empty);
   sem_destroy(&sem_ready_full);
@@ -833,6 +921,9 @@ int main(int argc, char *argv[]) {
   queue_destroy_and_destroy_elements(ready_queue, (void *)&process_destroy);
   list_destroy_and_destroy_elements(blocked, (void *)&queue_destroy);
   list_destroy_and_destroy_elements(finished, (void *)&process_destroy);
+
+  if (strcmp(algoritmo_planificacion, "VRR") == 0)
+    queue_destroy_and_destroy_elements(vrr_aux_queue, (void *)&process_destroy);
 
   log_destroy(logger);
   config_destroy(config);
