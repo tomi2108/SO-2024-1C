@@ -456,6 +456,10 @@ void planificacion_vrr() {
     updated_process = wait_process_exec(socket_cpu_dispatch, &exit, &name);
     quantum_left--;
 
+    pthread_mutex_lock(&mutex_exec);
+    exec->quantum = quantum_left;
+    pthread_mutex_unlock(&mutex_exec);
+
     if (quantum_left > 0 && updated_process == NULL)
       request_cpu_interrupt(0, socket_cpu_dispatch);
   }
