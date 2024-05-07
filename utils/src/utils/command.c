@@ -7,7 +7,7 @@ command_op command_op_from_string(char *op) {
     return CREATE_PROCESS;
   if (strcmp(op, "FINALIZAR_PROCESO") == 0)
     return FINISH_PROCESS;
-  if (strcmp(op, "DETENER_PROCESO") == 0)
+  if (strcmp(op, "DETENER_PLANIFICACION") == 0)
     return STOP_SCHEDULER;
   if (strcmp(op, "INICIAR_PLANIFICACION") == 0)
     return START_SCHEDULER;
@@ -15,8 +15,5 @@ command_op command_op_from_string(char *op) {
     return CHANGE_MULTIPROGRAMMING;
   if (strcmp(op, "PROCESO_ESTADO") == 0)
     return PRINT_PROCESSES;
-  // FOR DEBUGGING
-  if (strcmp(op, "READ_ADDR") == 0)
-    return READ_ADDR;
   return UNKNOWN_COMMAND;
 }

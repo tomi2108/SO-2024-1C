@@ -166,6 +166,7 @@ void reduce_process(uint32_t pid, int cant_paginas) {
     int frame = get_frame_from_page(page_table, page, pid);
     dealloc_page(frame);
   }
+  list_destroy(sorted_table);
 }
 
 void response_resize_process(packet_t *req, int client_socket) {
@@ -354,6 +355,8 @@ int main(int argc, char *argv[]) {
   log_info(logger, "Servidor levantado en el puerto %s", puerto_escucha);
 
   user_memory = malloc(tam_memoria);
+  memset(user_memory, 0, tam_memoria);
+
   page_table = list_create();
 
   for (int i = 0; i < frame_count; i++) {
