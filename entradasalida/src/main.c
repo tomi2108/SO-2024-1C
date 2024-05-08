@@ -1,3 +1,4 @@
+#include <commons/bitarray.h>
 #include <commons/config.h>
 #include <commons/log.h>
 #include <stdint.h>
@@ -5,8 +6,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <unistd.h>
 #include <utils/connection.h>
 #include <utils/exit.h>
+#include <utils/file.h>
 #include <utils/instruction.h>
 #include <utils/packet.h>
 #include <utils/status.h>
@@ -27,6 +30,7 @@ char *puerto_memoria;
 char *path_base_dialfs;
 int block_size;
 int block_count;
+t_bitarray *bit_map_bitarray;
 
 void interfaz_generica(packet_t *res, int socket_kernel) {
   uint32_t tiempo_espera = packet_read_uint32(res);
@@ -109,9 +113,155 @@ void interfaz_stdin(packet_t *res, int socket_kernel) {
   log_info(logger, "Se escribio %s en la direccion %u", input, address);
 }
 
-void interfaz_dialfs(packet_t *res, int socket_kernel) {
+char *parse_file_name(char *file_name) {
+  return file_concat_path(path_base_dialfs, file_name);
+}
 
-  // una vez que se procesa el paquete del kernel y se opera...
+t_bitarray *get_bitarray_bitmap(char *buffer) {
+  char *bitmap_path = parse_file_name("/bitmap.dat");
+
+  long length;
+  FILE *bitmap_file = fopen(bitmap_path, "rb");
+  fseek(bitmap_file, 0, SEEK_END);
+  length = ftell(bitmap_file);
+  fseek(bitmap_file, 0, SEEK_SET);
+
+  buffer = malloc((length + 1) * sizeof(char));
+  fread(buffer, sizeof(char), length, bitmap_file);
+
+  fclose(bitmap_file);
+  buffer[length] = '\0';
+
+  return bitarray_create_with_mode(buffer, block_count, MSB_FIRST);
+}
+
+void set_bitarray_bitmap() {
+  char *bitmap_path = parse_file_name("/bitmap.dat");
+  size_t size = bitarray_get_max_bit(bit_map_bitarray);
+
+  FILE *bitmap_file = fopen(bitmap_path, "wb");
+  fwrite(bit_map_bitarray->bitarray, sizeof(char), size / 8, bitmap_file);
+
+  fclose(bitmap_file);
+}
+
+uint32_t get_next_free_block() {
+  long i = 0;
+  while (bitarray_test_bit(bit_map_bitarray, i))
+    i++;
+  return i;
+}
+
+void alloc_block(uint32_t block_index) {
+  bitarray_set_bit(bit_map_bitarray, block_index);
+}
+void dealloc_block(uint32_t block_index) {
+  bitarray_clean_bit(bit_map_bitarray, block_index);
+}
+
+void fs_create(packet_t *req) {
+  char *file_name = packet_read_string(req);
+  char *parsed_file_name = parse_file_name(file_name);
+  free(file_name);
+
+  uint32_t free_block = get_next_free_block();
+  alloc_block(free_block);
+  set_bitarray_bitmap();
+
+  t_config *meta_data = config_create(parsed_file_name);
+
+  char bloque_inicial[10];
+  sprintf(bloque_inicial, "%u", free_block);
+  config_set_value(meta_data, "BLOQUE_INICIAL", bloque_inicial);
+  config_set_value(meta_data, "TAMANIO_ARCHIVO", "0");
+  config_save(meta_data);
+  config_destroy(meta_data);
+
+  free(parsed_file_name);
+}
+
+void fs_delete(packet_t *req) {
+  char *file_name = packet_read_string(req);
+  char *parsed_file_name = parse_file_name(file_name);
+  free(file_name);
+
+  t_config *meta_data = config_create(parsed_file_name);
+  char *bloque_inicial = config_get_string_value(meta_data, "BLOQUE_INICIAL");
+  char *file_size = config_get_string_value(meta_data, "TAMANIO_ARCHIVO");
+  config_destroy(meta_data);
+
+  uint32_t file_block_count = strtol(file_size, NULL, 10) / block_size;
+  uint32_t bloque_inicial_int = strtol(bloque_inicial, NULL, 10);
+  for (int i = 0; i < file_block_count; i++)
+    dealloc_block(bloque_inicial_int + i);
+  set_bitarray_bitmap();
+
+  remove(parsed_file_name);
+  free(parsed_file_name);
+}
+
+void fs_read(packet_t *req) {
+  char *file_name = packet_read_string(req);
+  char *parsed_file_name = parse_file_name(file_name);
+  free(file_name);
+
+  uint32_t size = packet_read_uint32(req);
+  uint32_t offset = packet_read_uint32(req);
+  uint32_t address = packet_read_uint32(req);
+
+  // leer del archivo file_name, a partir del offset, una cantidad size de bytes
+  // y enviar a memoria para escribir en la direccion address
+
+  free(parsed_file_name);
+}
+
+void fs_write(packet_t *req) {
+  char *file_name = packet_read_string(req);
+  char *parsed_file_name = parse_file_name(file_name);
+  free(file_name);
+
+  uint32_t size = packet_read_uint32(req);
+  uint32_t offset = packet_read_uint32(req);
+  uint32_t address = packet_read_uint32(req);
+
+  // leer de la dirreccion addres de memoria una cantidad size de bytes
+  // y escribir en el archivo con nombre file_name a partir del offset
+  free(parsed_file_name);
+}
+
+void fs_truncate(packet_t *req) {
+  char *file_name = packet_read_string(req);
+  char *parsed_file_name = parse_file_name(file_name);
+  free(file_name);
+
+  uint32_t size = packet_read_uint32(req);
+  // modificar archivo con nombre file_name para que el tamanio sea size bytes
+  free(parsed_file_name);
+}
+
+void interfaz_dialfs(packet_t *res, int socket_kernel) {
+  instruction_op op;
+  packet_read(res, &op, sizeof(instruction_op));
+  switch (op) {
+  case IO_FS_CREATE:
+    fs_create(res);
+    break;
+  case IO_FS_READ:
+    fs_read(res);
+    break;
+  case IO_FS_WRITE:
+    fs_write(res);
+    break;
+  case IO_FS_DELETE:
+    fs_delete(res);
+    break;
+  case IO_FS_TRUNCATE:
+    fs_truncate(res);
+    break;
+  default:
+    break;
+  }
+
   packet_t *res_kernel = status_pack(OK);
   packet_send(res_kernel, socket_kernel);
   packet_destroy(res_kernel);
@@ -165,6 +315,11 @@ int main(int argc, char *argv[]) {
   block_size = config_get_int_value(config, "BLOCK_SIZE");
   block_count = config_get_int_value(config, "BLOCK_COUNT");
 
+  char *bitmap_buffer = 0;
+  if (strcmp(io_type, "dialfs") == 0) {
+    bit_map_bitarray = get_bitarray_bitmap(bitmap_buffer);
+  }
+
   int socket_kernel = connection_create_client(ip_kernel, puerto_kernel);
   request_register_io(socket_kernel);
 
@@ -182,6 +337,12 @@ int main(int argc, char *argv[]) {
   }
 
   connection_close(socket_kernel);
+
+  if (strcmp(io_type, "dialfs") == 0) {
+    bitarray_destroy(bit_map_bitarray);
+    free(bitmap_buffer);
+  }
+
   log_destroy(logger);
   config_destroy(config);
   return EXIT_SUCCESS;
