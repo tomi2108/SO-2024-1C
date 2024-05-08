@@ -33,3 +33,8 @@ uint8_t file_exists(char *path) {
   int exists = access(path, F_OK);
   return exists == 0;
 }
+
+void file_create(char *path) {
+  FILE *file = fopen(path, "w");
+  fclose(file);
+}

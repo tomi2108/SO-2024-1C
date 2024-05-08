@@ -43,4 +43,11 @@ char *file_read_next_line(FILE *file, int max_line_length);
  */
 uint8_t file_exists(char *path);
 
+/**
+ * @fn     file_create
+ * @param  path  Path to create the file
+ * @brief  Creates a file in the file system
+ */
+void file_create(char *path);
+
 #endif

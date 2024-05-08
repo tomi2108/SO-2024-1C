@@ -30,7 +30,6 @@ char *puerto_memoria;
 char *path_base_dialfs;
 int block_size;
 int block_count;
-t_bitarray *bit_map_bitarray;
 
 void interfaz_generica(packet_t *res, int socket_kernel) {
   uint32_t tiempo_espera = packet_read_uint32(res);
@@ -117,11 +116,17 @@ char *parse_file_name(char *file_name) {
   return file_concat_path(path_base_dialfs, file_name);
 }
 
-t_bitarray *get_bitarray_bitmap(char *buffer) {
-  char *bitmap_path = parse_file_name("/bitmap.dat");
+void destroy_bitarray_bitmap(t_bitarray *bitarray) {
+  free(bitarray->bitarray);
+  bitarray_destroy(bitarray);
+}
 
+t_bitarray *get_bitarray_bitmap() {
+  char *bitmap_path = parse_file_name("/bitmap.dat");
+  char *buffer = 0;
   long length;
   FILE *bitmap_file = fopen(bitmap_path, "rb");
+
   fseek(bitmap_file, 0, SEEK_END);
   length = ftell(bitmap_file);
   fseek(bitmap_file, 0, SEEK_SET);
@@ -135,45 +140,63 @@ t_bitarray *get_bitarray_bitmap(char *buffer) {
   return bitarray_create_with_mode(buffer, block_count, MSB_FIRST);
 }
 
-void set_bitarray_bitmap() {
+void set_bitarray_bitmap(t_bitarray *bitarray) {
   char *bitmap_path = parse_file_name("/bitmap.dat");
-  size_t size = bitarray_get_max_bit(bit_map_bitarray);
+  size_t size = bitarray_get_max_bit(bitarray);
 
   FILE *bitmap_file = fopen(bitmap_path, "wb");
-  fwrite(bit_map_bitarray->bitarray, sizeof(char), size / 8, bitmap_file);
+  fwrite(bitarray->bitarray, sizeof(char), size / 8, bitmap_file);
 
   fclose(bitmap_file);
 }
 
-uint32_t get_next_free_block() {
-  long i = 0;
-  while (bitarray_test_bit(bit_map_bitarray, i))
+int get_next_free_block(t_bitarray *bitarray) {
+  int i = 0;
+  while (bitarray_test_bit(bitarray, i))
     i++;
+
+  if (i >= block_count * 8)
+    return -1;
+
   return i;
 }
 
-void alloc_block(uint32_t block_index) {
-  bitarray_set_bit(bit_map_bitarray, block_index);
+void alloc_n_blocks(t_bitarray *bitarray, uint32_t block_index, uint32_t n) {
+  if (n == 0)
+    return;
+  for (int i = 0; i < n; i++)
+    bitarray_set_bit(bitarray, block_index + i);
+  set_bitarray_bitmap(bitarray);
 }
-void dealloc_block(uint32_t block_index) {
-  bitarray_clean_bit(bit_map_bitarray, block_index);
+void dealloc_n_blocks(t_bitarray *bitarray, uint32_t block_index, uint32_t n) {
+  if (n == 0)
+    return;
+  for (int i = 0; i < n; i++)
+    bitarray_clean_bit(bitarray, block_index + i);
+  set_bitarray_bitmap(bitarray);
 }
 
 void fs_create(packet_t *req) {
   char *file_name = packet_read_string(req);
   char *parsed_file_name = parse_file_name(file_name);
   free(file_name);
+  t_bitarray *bitmap = get_bitarray_bitmap();
 
-  uint32_t free_block = get_next_free_block();
-  alloc_block(free_block);
-  set_bitarray_bitmap();
+  int free_block = get_next_free_block(bitmap);
+  if (free_block == -1) {
+    // no hay mas bloques libres
+    return;
+  }
 
+  alloc_n_blocks(bitmap, free_block, 1);
+  destroy_bitarray_bitmap(bitmap);
+
+  file_create(parsed_file_name);
   t_config *meta_data = config_create(parsed_file_name);
-
   char bloque_inicial[10];
-  sprintf(bloque_inicial, "%u", free_block);
-  config_set_value(meta_data, "BLOQUE_INICIAL", bloque_inicial);
+  sprintf(bloque_inicial, "%d", free_block);
   config_set_value(meta_data, "TAMANIO_ARCHIVO", "0");
+  config_set_value(meta_data, "BLOQUE_INICIAL", bloque_inicial);
   config_save(meta_data);
   config_destroy(meta_data);
 
@@ -192,9 +215,10 @@ void fs_delete(packet_t *req) {
 
   uint32_t file_block_count = strtol(file_size, NULL, 10) / block_size;
   uint32_t bloque_inicial_int = strtol(bloque_inicial, NULL, 10);
-  for (int i = 0; i < file_block_count; i++)
-    dealloc_block(bloque_inicial_int + i);
-  set_bitarray_bitmap();
+
+  t_bitarray *bitmap = get_bitarray_bitmap();
+  dealloc_n_blocks(bitmap, bloque_inicial_int, file_block_count);
+  destroy_bitarray_bitmap(bitmap);
 
   remove(parsed_file_name);
   free(parsed_file_name);
@@ -205,9 +229,9 @@ void fs_read(packet_t *req) {
   char *parsed_file_name = parse_file_name(file_name);
   free(file_name);
 
-  uint32_t size = packet_read_uint32(req);
-  uint32_t offset = packet_read_uint32(req);
-  uint32_t address = packet_read_uint32(req);
+  // uint32_t size = packet_read_uint32(req);
+  // uint32_t offset = packet_read_uint32(req);
+  // uint32_t address = packet_read_uint32(req);
 
   // leer del archivo file_name, a partir del offset, una cantidad size de bytes
   // y enviar a memoria para escribir en la direccion address
@@ -220,9 +244,9 @@ void fs_write(packet_t *req) {
   char *parsed_file_name = parse_file_name(file_name);
   free(file_name);
 
-  uint32_t size = packet_read_uint32(req);
-  uint32_t offset = packet_read_uint32(req);
-  uint32_t address = packet_read_uint32(req);
+  // uint32_t size = packet_read_uint32(req);
+  // uint32_t offset = packet_read_uint32(req);
+  // uint32_t address = packet_read_uint32(req);
 
   // leer de la dirreccion addres de memoria una cantidad size de bytes
   // y escribir en el archivo con nombre file_name a partir del offset
@@ -234,7 +258,7 @@ void fs_truncate(packet_t *req) {
   char *parsed_file_name = parse_file_name(file_name);
   free(file_name);
 
-  uint32_t size = packet_read_uint32(req);
+  // uint32_t size = packet_read_uint32(req);
   // modificar archivo con nombre file_name para que el tamanio sea size bytes
   free(parsed_file_name);
 }
@@ -276,6 +300,7 @@ void request_register_io(int client_socket) {
   packet_add_string(request, name);
   packet_add_string(request, io_type);
   packet_send(request, client_socket);
+  ;
   packet_destroy(request);
 }
 
@@ -315,11 +340,6 @@ int main(int argc, char *argv[]) {
   block_size = config_get_int_value(config, "BLOCK_SIZE");
   block_count = config_get_int_value(config, "BLOCK_COUNT");
 
-  char *bitmap_buffer = 0;
-  if (strcmp(io_type, "dialfs") == 0) {
-    bit_map_bitarray = get_bitarray_bitmap(bitmap_buffer);
-  }
-
   int socket_kernel = connection_create_client(ip_kernel, puerto_kernel);
   request_register_io(socket_kernel);
 
@@ -337,11 +357,6 @@ int main(int argc, char *argv[]) {
   }
 
   connection_close(socket_kernel);
-
-  if (strcmp(io_type, "dialfs") == 0) {
-    bitarray_destroy(bit_map_bitarray);
-    free(bitmap_buffer);
-  }
 
   log_destroy(logger);
   config_destroy(config);
