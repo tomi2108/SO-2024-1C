@@ -175,6 +175,7 @@ void response_register_io(packet_t *request, int io_socket) {
 
   io *interfaz = malloc(sizeof(io));
   interfaz->type = strdup(tipo_interfaz);
+  free(tipo_interfaz);
   interfaz->socket = io_socket;
   t_queue *io_queue = queue_create();
 
@@ -350,6 +351,7 @@ process_t *wait_process_exec(int socket_cpu_dispatch, interrupt *exit,
       *exit = FINISH;
       return request_cpu_interrupt(1, socket_cpu_dispatch);
     }
+    free(nombre);
   }
   case PROCESS: {
     // en caso que el proceso termine sin ejecutar nada
@@ -407,7 +409,6 @@ void end_process(process_t *process) {
   free_process(process->pid);
   log_info(logger, "Finaliza el proceso %u", process->pid);
 
-  printf("Termina la terminacion");
   pthread_mutex_lock(&mutex_finished);
   list_add(finished, process);
   pthread_mutex_unlock(&mutex_finished);

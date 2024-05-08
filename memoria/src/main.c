@@ -221,6 +221,7 @@ void response_init_process(packet_t *request, int client_socket) {
   char *full_path = file_concat_path(path_instrucciones, path);
   uint8_t exists = file_exists(full_path);
   free(full_path);
+  free(path);
   status_code status_code = exists ? OK : NOT_FOUND;
   packet_t *res = status_pack(status_code);
   packet_send(res, client_socket);
@@ -245,6 +246,7 @@ void response_fetch_instruction(packet_t *request, int client_socket) {
     packet_send(res, client_socket);
     packet_destroy(res);
   }
+  free(instruction_path);
 }
 
 void response_fetch_frame_number(packet_t *req, int client_socket) {

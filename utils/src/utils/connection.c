@@ -4,8 +4,11 @@
 
 int handshake_server(packet_t *handshake_packet) {
   char *handshake_string = packet_read_string(handshake_packet);
-  if (strcmp("AGUANTE_MESSI", handshake_string) == 0)
+  if (strcmp("AGUANTE_MESSI", handshake_string) == 0) {
+    free(handshake_string);
     return 0;
+  }
+  free(handshake_string);
   return -1;
 }
 

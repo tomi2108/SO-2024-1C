@@ -278,8 +278,10 @@ void response_exec_process(packet_t *req, int client_socket) {
     sem_post(&sem_check_interrupt);
 
     // fetch
-    if (dealloc == 0)
+    if (dealloc == 0) {
+      free(instruction);
       instruction = request_fetch_instruction(process);
+    }
   }
   dealloc = 0;
   load_registers(&process);
