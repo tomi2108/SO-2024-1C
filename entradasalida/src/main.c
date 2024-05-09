@@ -1,3 +1,4 @@
+#include "utils/buffer.h"
 #include <commons/bitarray.h>
 #include <commons/config.h>
 #include <commons/log.h>
@@ -13,6 +14,8 @@
 #include <utils/instruction.h>
 #include <utils/packet.h>
 #include <utils/status.h>
+
+#define MAX_METADATA_VALUE_LENGTH 10
 
 t_log *logger;
 t_config *config;
@@ -168,6 +171,7 @@ void alloc_n_blocks(t_bitarray *bitarray, uint32_t block_index, uint32_t n) {
     bitarray_set_bit(bitarray, block_index + i);
   set_bitarray_bitmap(bitarray);
 }
+
 void dealloc_n_blocks(t_bitarray *bitarray, uint32_t block_index, uint32_t n) {
   if (n == 0)
     return;
@@ -176,10 +180,56 @@ void dealloc_n_blocks(t_bitarray *bitarray, uint32_t block_index, uint32_t n) {
   set_bitarray_bitmap(bitarray);
 }
 
-void fs_create(packet_t *req) {
-  char *file_name = packet_read_string(req);
-  char *parsed_file_name = parse_file_name(file_name);
+buffer_t *read_n_blocks(int initial_block, uint32_t n) {
+  char *file_name = parse_file_name("/bloques.dat");
+  buffer_t *buff = buffer_create();
+  FILE *blocks = fopen(file_name, "r");
   free(file_name);
+
+  fseek(blocks, initial_block, SEEK_SET);
+  fread(buff->stream, n, sizeof(char), blocks);
+  fclose(blocks);
+  buff->size = n;
+
+  return buff;
+}
+
+void write_n_blocks(int initial_block, uint32_t n, buffer_t *buff) {
+  char *file_name = parse_file_name("/bloques.dat");
+  FILE *blocks = fopen(file_name, "w");
+  free(file_name);
+
+  fseek(blocks, initial_block, SEEK_SET);
+  fwrite(buff->stream, n, sizeof(char), blocks);
+  fclose(blocks);
+  buff->offset = n;
+}
+
+int get_metadata(char *file_name, char *key) {
+  t_config *metadata = config_create(file_name);
+  int data = config_get_int_value(metadata, key);
+  config_destroy(metadata);
+  return data;
+}
+
+void set_metadata(char *file_name, char *key, int value) {
+  t_config *metadata = config_create(file_name);
+  char data[MAX_METADATA_VALUE_LENGTH];
+  sprintf(data, "%d", value);
+  config_set_value(metadata, key, data);
+  config_save(metadata);
+  config_destroy(metadata);
+}
+
+void create_metadata(char *file_name, int initial_block) {
+  file_create(file_name);
+  set_metadata(file_name, "BLOQUE_INICIAL", initial_block);
+  set_metadata(file_name, "TAMANIO_ARCHIVO", 0);
+}
+
+void destroy_metadata(char *file_name) { remove(file_name); }
+
+void fs_create(char *file_name) {
   t_bitarray *bitmap = get_bitarray_bitmap();
 
   int free_block = get_next_free_block(bitmap);
@@ -191,100 +241,117 @@ void fs_create(packet_t *req) {
   alloc_n_blocks(bitmap, free_block, 1);
   destroy_bitarray_bitmap(bitmap);
 
-  file_create(parsed_file_name);
-  t_config *meta_data = config_create(parsed_file_name);
-  char bloque_inicial[10];
-  sprintf(bloque_inicial, "%d", free_block);
-  config_set_value(meta_data, "TAMANIO_ARCHIVO", "0");
-  config_set_value(meta_data, "BLOQUE_INICIAL", bloque_inicial);
-  config_save(meta_data);
-  config_destroy(meta_data);
-
-  free(parsed_file_name);
+  create_metadata(file_name, free_block);
 }
 
-void fs_delete(packet_t *req) {
-  char *file_name = packet_read_string(req);
-  char *parsed_file_name = parse_file_name(file_name);
-  free(file_name);
-
-  t_config *meta_data = config_create(parsed_file_name);
-  char *bloque_inicial = config_get_string_value(meta_data, "BLOQUE_INICIAL");
-  char *file_size = config_get_string_value(meta_data, "TAMANIO_ARCHIVO");
-  config_destroy(meta_data);
-
-  uint32_t file_block_count = strtol(file_size, NULL, 10) / block_size;
-  uint32_t bloque_inicial_int = strtol(bloque_inicial, NULL, 10);
+void fs_delete(char *file_name) {
+  int file_size = get_metadata(file_name, "TAMANIO_ARCHIVO");
+  int initial_block = get_metadata(file_name, "BLOQUE_INICIAL");
+  uint32_t file_block_count = file_size / block_size;
 
   t_bitarray *bitmap = get_bitarray_bitmap();
-  dealloc_n_blocks(bitmap, bloque_inicial_int, file_block_count);
+  if (file_block_count == 0)
+    dealloc_n_blocks(bitmap, initial_block, 1);
+  else
+    dealloc_n_blocks(bitmap, initial_block, file_block_count);
+
   destroy_bitarray_bitmap(bitmap);
-
-  remove(parsed_file_name);
-  free(parsed_file_name);
+  destroy_metadata(file_name);
 }
 
-void fs_read(packet_t *req) {
-  char *file_name = packet_read_string(req);
-  char *parsed_file_name = parse_file_name(file_name);
-  free(file_name);
+void fs_read(char *file_name, uint32_t pid, packet_t *req) {
+  uint32_t size = packet_read_uint32(req);
+  uint32_t offset = packet_read_uint32(req);
+  uint32_t address = packet_read_uint32(req);
 
-  // uint32_t size = packet_read_uint32(req);
-  // uint32_t offset = packet_read_uint32(req);
-  // uint32_t address = packet_read_uint32(req);
+  int initial_block = get_metadata(file_name, "BLOQUE_INICIAL");
 
-  // leer del archivo file_name, a partir del offset, una cantidad size de bytes
-  // y enviar a memoria para escribir en la direccion address
+  buffer_t *buff = read_n_blocks(initial_block + offset, size);
 
-  free(parsed_file_name);
+  int socket = connection_create_client(ip_memoria, puerto_memoria);
+  packet_t *req_memoria = packet_create(WRITE_DIR);
+  packet_add_uint32(req_memoria, address);
+  packet_add_uint32(req_memoria, pid);
+  packet_add_uint32(req_memoria, size);
+
+  for (int i = 0; i < size; i++) {
+    uint8_t byte = buffer_read_uint8(buff);
+    packet_add_uint8(req_memoria, byte);
+  }
+
+  buffer_destroy(buff);
+  packet_send(req_memoria, socket);
+  packet_destroy(req_memoria);
+  connection_close(socket);
 }
 
-void fs_write(packet_t *req) {
-  char *file_name = packet_read_string(req);
-  char *parsed_file_name = parse_file_name(file_name);
-  free(file_name);
+void fs_write(char *file_name, uint32_t pid, packet_t *req) {
+  uint32_t size = packet_read_uint32(req);
+  uint32_t offset = packet_read_uint32(req);
+  uint32_t address = packet_read_uint32(req);
 
-  // uint32_t size = packet_read_uint32(req);
-  // uint32_t offset = packet_read_uint32(req);
-  // uint32_t address = packet_read_uint32(req);
+  int socket = connection_create_client(ip_memoria, puerto_memoria);
+  packet_t *req_memoria = packet_create(READ_DIR);
+  packet_add_uint32(req_memoria, address);
+  packet_add_uint32(req_memoria, pid);
+  packet_add_uint32(req_memoria, size);
+  packet_send(req_memoria, socket);
+  packet_destroy(req_memoria);
 
-  // leer de la dirreccion addres de memoria una cantidad size de bytes
-  // y escribir en el archivo con nombre file_name a partir del offset
-  free(parsed_file_name);
+  packet_t *res_memoria = packet_recieve(socket);
+
+  buffer_t *buff = buffer_create();
+  for (int i = 0; i < size; i++) {
+    uint8_t byte = packet_read_uint8(res_memoria);
+    buffer_add_uint8(buff, byte);
+  }
+  packet_destroy(res_memoria);
+
+  int initial_block = get_metadata(file_name, "BLOQUE_INICIAL");
+  write_n_blocks(initial_block + offset, size, buff);
+
+  buffer_destroy(buff);
+  connection_close(socket);
 }
 
-void fs_truncate(packet_t *req) {
-  char *file_name = packet_read_string(req);
-  char *parsed_file_name = parse_file_name(file_name);
-  free(file_name);
+void fs_truncate(char *file_name, packet_t *req) {
+  uint32_t size = packet_read_uint32(req);
+  // if (size == 0)
+  //   return fs_delete(file_name); ????? podria ser una alternativa....
 
-  // uint32_t size = packet_read_uint32(req);
   // modificar archivo con nombre file_name para que el tamanio sea size bytes
-  free(parsed_file_name);
 }
 
 void interfaz_dialfs(packet_t *res, int socket_kernel) {
+  usleep(tiempo_unidad_trabajo_ms * 1000);
   instruction_op op;
   packet_read(res, &op, sizeof(instruction_op));
+
+  char *file_name = packet_read_string(res);
+  uint32_t pid = packet_read_uint32(res);
+  char *parsed_file_name = parse_file_name(file_name);
+  free(file_name);
+
   switch (op) {
   case IO_FS_CREATE:
-    fs_create(res);
+    fs_create(parsed_file_name);
     break;
   case IO_FS_READ:
-    fs_read(res);
+    fs_read(parsed_file_name, pid, res);
     break;
   case IO_FS_WRITE:
-    fs_write(res);
+    fs_write(parsed_file_name, pid, res);
     break;
   case IO_FS_DELETE:
-    fs_delete(res);
+    fs_delete(parsed_file_name);
     break;
   case IO_FS_TRUNCATE:
-    fs_truncate(res);
+    fs_truncate(parsed_file_name, res);
     break;
   default:
     break;
   }
+  free(parsed_file_name);
 
   packet_t *res_kernel = status_pack(OK);
   packet_send(res_kernel, socket_kernel);
