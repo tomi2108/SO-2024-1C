@@ -200,6 +200,15 @@ void exec_instruction(instruction_op op, t_list *params,
   case IO_STDOUT_WRITE:
     instruction_io_stdout(params, instruction_packet, &translate_address, pid);
     break;
+  case IO_FS_CREATE:
+    instruction_io_fs_create(params, instruction_packet, logger, pid);
+    break;
+  case WAIT:
+    instruction_wait(params, instruction_packet, logger, pid);
+    break;
+  case SIGNAL:
+    instruction_signal(params, instruction_packet, logger, pid);
+    break;
   default:
     break;
   }
