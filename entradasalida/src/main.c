@@ -16,6 +16,8 @@
 #include <utils/status.h>
 
 #define MAX_METADATA_VALUE_LENGTH 10
+#define FILE_SIZE_KEY "TAMANIO_ARCHIVO"
+#define INITIAL_BLOCK_KEY "BLOQUE_INICIAL"
 
 t_log *logger;
 t_config *config;
@@ -33,6 +35,8 @@ char *puerto_memoria;
 char *path_base_dialfs;
 int block_size;
 int block_count;
+
+int ceil_div(uint32_t num, int denom) { return (num + denom - 1) / denom; }
 
 void interfaz_generica(packet_t *res, int socket_kernel) {
   uint32_t tiempo_espera = packet_read_uint32(res);
@@ -91,7 +95,7 @@ void interfaz_stdin(packet_t *res, int socket_kernel) {
   if (socket_memoria == -1)
     exit_client_connection_error(logger);
 
-  log_info(logger, "Ingrese string a guardar en memoria");
+  printf("Ingrese string a guardar en memoria\n>");
   char *input = NULL;
   size_t length = 0;
   length = getline(&input, &length, stdin);
@@ -124,7 +128,7 @@ void destroy_bitarray_bitmap(t_bitarray *bitarray) {
   bitarray_destroy(bitarray);
 }
 
-t_bitarray *get_bitarray_bitmap() {
+t_bitarray *get_bitarray_bitmap(void) {
   char *bitmap_path = parse_file_name("/bitmap.dat");
   char *buffer = 0;
   long length;
@@ -145,10 +149,9 @@ t_bitarray *get_bitarray_bitmap() {
 
 void set_bitarray_bitmap(t_bitarray *bitarray) {
   char *bitmap_path = parse_file_name("/bitmap.dat");
-  size_t size = bitarray_get_max_bit(bitarray);
 
-  FILE *bitmap_file = fopen(bitmap_path, "wb");
-  fwrite(bitarray->bitarray, sizeof(char), size / 8, bitmap_file);
+  FILE *bitmap_file = fopen(bitmap_path, "w");
+  fwrite(bitarray->bitarray, sizeof(char), block_count / 8, bitmap_file);
 
   fclose(bitmap_file);
 }
@@ -185,24 +188,24 @@ buffer_t *read_n_blocks(int initial_block, uint32_t n) {
   buffer_t *buff = buffer_create();
   FILE *blocks = fopen(file_name, "r");
   free(file_name);
-
-  fseek(blocks, initial_block, SEEK_SET);
-  fread(buff->stream, n, sizeof(char), blocks);
+  fseek(blocks, initial_block * block_size, SEEK_SET);
+  buff->stream = malloc(n * block_size);
+  fread(buff->stream, n, block_size, blocks);
   fclose(blocks);
-  buff->size = n;
+  buff->size += n * block_size;
 
   return buff;
 }
 
 void write_n_blocks(int initial_block, uint32_t n, buffer_t *buff) {
   char *file_name = parse_file_name("/bloques.dat");
-  FILE *blocks = fopen(file_name, "w");
+  FILE *blocks = fopen(file_name, "r+");
   free(file_name);
 
-  fseek(blocks, initial_block, SEEK_SET);
-  fwrite(buff->stream, n, sizeof(char), blocks);
+  fseek(blocks, initial_block * block_size, SEEK_SET);
+  fwrite(buff->stream, n, block_size, blocks);
   fclose(blocks);
-  buff->offset = n;
+  buff->offset += n * block_size;
 }
 
 int get_metadata(char *file_name, char *key) {
@@ -223,8 +226,8 @@ void set_metadata(char *file_name, char *key, int value) {
 
 void create_metadata(char *file_name, int initial_block) {
   file_create(file_name);
-  set_metadata(file_name, "BLOQUE_INICIAL", initial_block);
-  set_metadata(file_name, "TAMANIO_ARCHIVO", 0);
+  set_metadata(file_name, INITIAL_BLOCK_KEY, initial_block);
+  set_metadata(file_name, FILE_SIZE_KEY, 0);
 }
 
 void destroy_metadata(char *file_name) { remove(file_name); }
@@ -245,8 +248,8 @@ void fs_create(char *file_name) {
 }
 
 void fs_delete(char *file_name) {
-  int file_size = get_metadata(file_name, "TAMANIO_ARCHIVO");
-  int initial_block = get_metadata(file_name, "BLOQUE_INICIAL");
+  int file_size = get_metadata(file_name, FILE_SIZE_KEY);
+  int initial_block = get_metadata(file_name, INITIAL_BLOCK_KEY);
   uint32_t file_block_count = file_size / block_size;
 
   t_bitarray *bitmap = get_bitarray_bitmap();
@@ -264,7 +267,7 @@ void fs_read(char *file_name, uint32_t pid, packet_t *req) {
   uint32_t offset = packet_read_uint32(req);
   uint32_t address = packet_read_uint32(req);
 
-  int initial_block = get_metadata(file_name, "BLOQUE_INICIAL");
+  int initial_block = get_metadata(file_name, INITIAL_BLOCK_KEY);
 
   buffer_t *buff = read_n_blocks(initial_block + offset, size);
 
@@ -307,19 +310,101 @@ void fs_write(char *file_name, uint32_t pid, packet_t *req) {
   }
   packet_destroy(res_memoria);
 
-  int initial_block = get_metadata(file_name, "BLOQUE_INICIAL");
+  int initial_block = get_metadata(file_name, INITIAL_BLOCK_KEY);
   write_n_blocks(initial_block + offset, size, buff);
 
   buffer_destroy(buff);
   connection_close(socket);
 }
 
+void compact(t_bitarray *bitmap) {
+  int compacts = 0;
+  do {
+    compacts = 0;
+    int i = 1;
+    int j = 0;
+    while (j < block_count) {
+      bool bit_i = bitarray_test_bit(bitmap, i);
+      bool bit_j = bitarray_test_bit(bitmap, j);
+      if (bit_i && !bit_j) {
+        compacts++;
+        buffer_t *buff = read_n_blocks(i, 1);
+        bitarray_clean_bit(bitmap, i);
+        bitarray_set_bit(bitmap, j);
+        write_n_blocks(j, 1, buff);
+        buffer_destroy(buff);
+      }
+      i++;
+      j++;
+    }
+  } while (compacts != 0);
+}
+
+int can_file_extend(t_bitarray *bitmap, char *file_name, int blocks_to_extend) {
+  int file_size = get_metadata(file_name, FILE_SIZE_KEY);
+  int initial_block = get_metadata(file_name, INITIAL_BLOCK_KEY);
+  int file_blocks = file_size / block_size;
+
+  int i = 0;
+  int cont_i = 0;
+  int free_blocks = 0;
+  while (i < block_count) {
+    bool bit = bitarray_test_bit(bitmap, i);
+    if (!bit)
+      free_blocks++;
+
+    if (i >= initial_block + file_blocks) {
+      if (!bit)
+        cont_i++;
+
+      if (cont_i == blocks_to_extend)
+        return i - blocks_to_extend + 1;
+    }
+    i++;
+  }
+  if (free_blocks >= blocks_to_extend)
+    return -1; // se puede compactar
+  return -2;
+}
+
 void fs_truncate(char *file_name, packet_t *req) {
   uint32_t size = packet_read_uint32(req);
   // if (size == 0)
   //   return fs_delete(file_name); ????? podria ser una alternativa....
+  uint32_t file_size = get_metadata(file_name, FILE_SIZE_KEY);
+  uint32_t file_blocks = file_size / block_size;
+  uint32_t initial_block = get_metadata(file_name, INITIAL_BLOCK_KEY);
+  if (file_size == size)
+    return;
+  int reduce = file_size > size;
 
-  // modificar archivo con nombre file_name para que el tamanio sea size bytes
+  if (reduce) {
+    uint32_t block_difference = (file_size - size) / block_size;
+    t_bitarray *bitmap = get_bitarray_bitmap();
+    dealloc_n_blocks(bitmap, initial_block + file_blocks - block_difference,
+                     block_difference);
+    bitarray_destroy(bitmap);
+    return;
+  }
+  t_bitarray *bitmap = get_bitarray_bitmap();
+  uint32_t block_difference = ceil_div(size - file_size, block_size);
+  int free_block = can_file_extend(bitmap, file_name, block_difference);
+  if (free_block == -2) // Out of memory
+  {
+    bitarray_destroy(bitmap);
+    return;
+  } else if (free_block == -1) {
+    buffer_t *buff = read_n_blocks(initial_block, file_size);
+    dealloc_n_blocks(bitmap, initial_block, file_size);
+    compact(bitmap);
+    int next_free_block = get_next_free_block(bitmap);
+    alloc_n_blocks(bitmap, next_free_block, file_size + block_difference);
+    write_n_blocks(free_block, file_size + block_difference, buff);
+    buffer_destroy(buff);
+  } else {
+    alloc_n_blocks(bitmap, free_block, size);
+    bitarray_destroy(bitmap);
+  }
 }
 
 void interfaz_dialfs(packet_t *res, int socket_kernel) {
@@ -376,6 +461,34 @@ uint8_t is_io_type_supported() {
          strcmp(io_type, "stdout") == 0 || strcmp(io_type, "dialfs") == 0;
 }
 
+void print_bitarray(t_bitarray *bitarray) {
+  int i = 0;
+  while (i < block_count) {
+    bool bit = bitarray_test_bit(bitarray, i);
+    if (bit)
+      printf("1");
+    else
+      printf("0");
+    if ((i + 1) % 16 == 0)
+      printf("\n");
+    i++;
+  }
+}
+
+void print_blocks() {
+  int i = 0;
+  while (i < block_count) {
+    buffer_t *buff = read_n_blocks(i, 1);
+    uint8_t byte = buffer_read_uint8(buff);
+    uint8_t byte2 = buffer_read_uint8(buff);
+    printf("%c", byte);
+    printf("%c", byte2);
+    if ((i + 1) % 16 == 0)
+      printf("\n");
+    i++;
+    buffer_destroy(buff);
+  }
+}
 int main(int argc, char *argv[]) {
 
   logger =
@@ -406,24 +519,68 @@ int main(int argc, char *argv[]) {
   path_base_dialfs = config_get_string_value(config, "PATH_BASE_DIALFS");
   block_size = config_get_int_value(config, "BLOCK_SIZE");
   block_count = config_get_int_value(config, "BLOCK_COUNT");
+  //
+  // buffer_t *buff = buffer_create();
+  // buff->stream = "xHxoxlxaxax1x2x3x4x5";
+  // buffer_t *buff3 = buffer_create();
+  // buff3->stream = "xsxoxl";
+  // buffer_t *buff5 = buffer_create();
+  // buff5->stream = "xSxoxyx xTxoxmxix x1x2x3x4x5x6x3xbxa";
+  // buffer_t *clean_buffer = buffer_create();
+  // clean_buffer->stream =
+  //     "........................................................................"
+  //     "........................................................................"
+  //     "........................................................................"
+  //     "....................";
 
-  int socket_kernel = connection_create_client(ip_kernel, puerto_kernel);
-  request_register_io(socket_kernel);
+  buffer_t *buff = buffer_create();
+  buff->stream = "Holaa12345";
+  buffer_t *buff3 = buffer_create();
+  buff3->stream = "sol";
+  buffer_t *buff5 = buffer_create();
+  buff5->stream = "Soy Tomi 1234563ba";
+  buffer_t *clean_buffer = buffer_create();
+  clean_buffer->stream =
+      "........................................................................"
+      "........................................................";
 
-  while (1) {
-    packet_t *res = packet_recieve(socket_kernel);
-    if (strcmp(io_type, "generica") == 0) {
-      interfaz_generica(res, socket_kernel);
-    } else if (strcmp(io_type, "stdin") == 0) {
-      interfaz_stdin(res, socket_kernel);
-    } else if (strcmp(io_type, "stdout") == 0) {
-      interfaz_stdout(res, socket_kernel);
-    } else if (strcmp(io_type, "dialfs") == 0)
-      interfaz_dialfs(res, socket_kernel);
-    packet_destroy(res);
-  }
+  t_bitarray *bitmap = get_bitarray_bitmap();
+  dealloc_n_blocks(bitmap, 0, block_count);
+  write_n_blocks(0, block_count, clean_buffer);
 
-  connection_close(socket_kernel);
+  alloc_n_blocks(bitmap, 5, 10);
+  write_n_blocks(5, 10, buff);
+  alloc_n_blocks(bitmap, 48, 3);
+  write_n_blocks(48, 3, buff3);
+  alloc_n_blocks(bitmap, 110, 18);
+  write_n_blocks(110, 18, buff5);
+
+  print_bitarray(bitmap);
+  printf("----------------\n");
+  print_blocks();
+  printf("----------------\n");
+  compact(bitmap);
+  print_bitarray(bitmap);
+  printf("----------------\n");
+  print_blocks();
+
+  bitarray_destroy(bitmap);
+
+  // int socket_kernel = connection_create_client(ip_kernel, puerto_kernel);
+  // request_register_io(socket_kernel);
+  // while (1) {
+  //   packet_t *res = packet_recieve(socket_kernel);
+  //   if (strcmp(io_type, "generica") == 0) {
+  //     interfaz_generica(res, socket_kernel);
+  //   } else if (strcmp(io_type, "stdin") == 0) {
+  //     interfaz_stdin(res, socket_kernel);
+  //   } else if (strcmp(io_type, "stdout") == 0) {
+  //     interfaz_stdout(res, socket_kernel);
+  //   } else if (strcmp(io_type, "dialfs") == 0)
+  //     interfaz_dialfs(res, socket_kernel);
+  //   packet_destroy(res);
+  // }
+  // connection_close(socket_kernel);
 
   log_destroy(logger);
   config_destroy(config);

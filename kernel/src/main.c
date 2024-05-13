@@ -211,6 +211,9 @@ void response_register_io(packet_t *request, int io_socket) {
                blocked_process->pid);
     }
   }
+  pthread_mutex_lock(&mutex_blocked);
+  list_remove(blocked, interfaz->queue_index);
+  pthread_mutex_unlock(&mutex_blocked);
 }
 
 void *atender_cliente(void *args) {
