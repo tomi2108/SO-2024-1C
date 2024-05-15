@@ -25,6 +25,12 @@ char *instruction_op_to_string(instruction_op op) {
     return "IO_STDIN_READ";
   case IO_STDOUT_WRITE:
     return "IO_STDOUT_WRITE";
+  case IO_FS_CREATE:
+    return "IO_FS_CREATE";
+  case WAIT:
+    return "WAIT";
+  case SIGNAL:
+    return "SIGNAL";
   default:
     return "UNKNOW_INSTRUCTION";
   };
@@ -53,6 +59,12 @@ instruction_op instruction_op_from_string(char *op) {
     return IO_STDOUT_WRITE;
   if (strcmp(op, "IO_STDIN_READ") == 0)
     return IO_STDIN_READ;
+  if (strcmp(op, "IO_FS_CREATE") == 0)
+    return IO_FS_CREATE;
+  if (strcmp(op, "WAIT") == 0)
+    return WAIT;
+  if (strcmp(op, "SIGNAL") == 0)
+    return SIGNAL;
   return UNKNOWN_INSTRUCTION;
 }
 
@@ -209,3 +221,41 @@ void instruction_io_stdout(t_list *params, packet_t *instruction_packet,
   packet_add_uint32(instruction_packet, pid);
   packet_add_uint32(instruction_packet, *(uint32_t *)third_param->value);
 }
+
+void instruction_io_fs_create(t_list *params, packet_t *instruction_packet, t_log* logger, uint32_t pid){
+  char *interface_type = ((param *)list_get(params, 0))->value;
+  char *file_name = ((param *)list_get(params, 1))->value;
+
+  packet_add_string(instruction_packet, interface_type);
+  packet_add_string(instruction_packet, file_name);
+  packet_add_uint32(instruction_packet, pid);
+
+ //packet_t *res = packet_recieve(client_socket);
+  //log_info(logger,
+    //       "PID: %u - se crea archivo", pid);
+  //packet_destroy(res);
+}
+
+void instruction_wait(t_list *params, packet_t *instruction_packet, t_log* logger, uint32_t pid) {
+    char *resource = ((param *)list_get(params, 0))->value;
+
+    packet_add_string(instruction_packet, resource);
+    packet_add_uint32(instruction_packet, pid);
+
+    //packet_t *res = packet_recieve(socket);
+    //uint32_t instances = packet_read_uint32(res);
+    //log_info(logger, "PID: %u - WAIT - Resource: %s- Instances: %u", pid, resource, instances);
+    //packet_destroy(res);
+}
+
+void instruction_signal(t_list *params, packet_t *instruction_packet, t_log* logger, uint32_t pid) {
+    char *resource = ((param *)list_get(params, 0))->value;
+
+    packet_add_string(instruction_packet, resource);
+    packet_add_uint32(instruction_packet, pid);
+    //packet_t *res = packet_recieve(socket);
+    //uint32_t instances = packet_read_uint32(res);
+    //log_info(logger, "PID: %u - SIGNAL - Resource: %s - Instances: %u", pid, resource, instances);
+    //packet_destroy(res);
+}
+

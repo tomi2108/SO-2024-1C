@@ -26,6 +26,8 @@ typedef enum {
   IO_FS_WRITE,
   IO_FS_READ,
   EXIT,
+  WAIT,
+  SIGNAL,
   UNKNOWN_INSTRUCTION
 } instruction_op;
 
@@ -162,5 +164,33 @@ void instruction_io_stdin(t_list *params, packet_t *instruction_packet,
 void instruction_io_stdout(t_list *params, packet_t *instruction_packet,
                            uint32_t (*translate_addres)(uint32_t),
                            uint32_t pid);
+
+/**
+ * @fn     instruction_io_fs_create
+ * @param  params             Parameters to the IO_FS_CREATE instruction
+ * @param  socket             Socket to send the resolution of IO_FS_CREATE
+ * @param  pid                Pid from process
+ * @brief  IO_FS_CREATE instruction implementation
+ */
+void instruction_io_fs_create(t_list *parms, packet_t *instruction_packet,
+                              t_log *logger, uint32_t pid);
+
+void instruction_io_fs_delete(t_list *parms, packet_t *instruction_packet,
+                              t_log *logger, uint32_t pid);
+
+void instruction_io_fs_read(t_list *parms, packet_t *instruction_packet,
+                            t_log *logger, uint32_t pid);
+
+void instruction_io_fs_write(t_list *parms, packet_t *instruction_packet,
+                             t_log *logger, uint32_t pid);
+
+void instruction_io_fs_truncate(t_list *parms, packet_t *instruction_packet,
+                                t_log *logger, uint32_t pid);
+
+void instruction_wait(t_list *params, packet_t *instruction_packet,
+                      t_log *logger, uint32_t pid);
+
+void instruction_signal(t_list *params, packet_t *instruction_packet,
+                        t_log *logger, uint32_t pid);
 
 #endif

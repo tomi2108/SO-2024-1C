@@ -36,6 +36,12 @@ typedef struct {
 
 t_dictionary *io_dict;
 
+typedef struct {
+    char *name;
+    uint32_t instances;
+} resource;
+resource *resources_array;
+
 void exec_script(char *path);
 
 t_log *logger;
@@ -54,6 +60,7 @@ char *algoritmo_planificacion;
 int initial_quantum;
 char **recursos;
 char **instancias_recursos;
+int num_resources;
 int grado_multiprogramacion;
 char *path_instrucciones;
 
@@ -85,6 +92,28 @@ sem_t sem_exec_full;
 sem_t sem_exec_empty;
 
 sem_t sem_scheduler;
+
+void initialize_resources(char **recursos, char **instancias_recursos){
+  num_resources = 0;
+  while (recursos[num_resources] != NULL)
+  {
+    num_resources++;
+  }
+
+  resources_array = malloc(num_resources * sizeof(resource));
+
+    for (int i = 0; i < num_resources; i++) {
+        char *resource_name = recursos[i];
+        uint32_t instances = atoi(instancias_recursos[i]);
+
+        resources_array[i].name = strdup(resource_name);
+        resources_array[i].instances = instances;
+    }
+}
+
+void create_file(char *interface, char *filename){
+}
+
 
 void free_io(void *e) {
   io *interface = (io *)e;
@@ -322,6 +351,72 @@ void response_io_stdout(packet_t *res, char *nombre) {
   packet_destroy(io_res);
 }
 
+void response_io_fs_create(packet_t *res, char *nombre){
+  io *interfaz = dictionary_get(io_dict, nombre);
+  packet_t *io_res = packet_create(REGISTER_IO);
+
+  char *interface_type = packet_read_string(res);
+  char *file_name = packet_read_string(res);
+  uint32_t pid = packet_read_uint32(res);
+
+  create_file(interface_type, file_name);
+  packet_destroy(res);
+  packet_add_uint32(io_res, pid);
+
+  packet_send(io_res, interfaz->socket);
+  packet_destroy(io_res);
+
+}
+
+int get_resource_id(char *resource){
+   int resource_i = -1;
+   for (int i = 0; i < num_resources; i++) {
+      if (strcmp(resources_array[i].name, resource) == 0) {
+        resource_i = i;
+        break;
+      }
+    }
+
+    return resource_i;
+}
+
+void response_wait(packet_t *res){
+    char *resource = packet_read_string(res);
+
+    int resource_i = get_resource_id(resource);
+
+    if(resource_i != -1){
+      if (resources_array[resource_i].instances > 0) {
+        resources_array[resource_i].instances--;
+      } else {
+    //process_block(current_process->pid);
+    //proceso que realizo WAIT pasa a la cola de bloqueados
+    //packet_add_uint32(r_res, resources_array[resource_i].instances);
+    }
+    }else{
+      uint32_t pid = packet_read_uint32(res);
+      //se envia el proceso a EXIT
+      //finish_process(pid);
+    }
+    packet_destroy(res);
+}
+void response_signal(packet_t *res){
+  char *resource = packet_read_string(res);
+
+  int resource_i = get_resource_id(resource);
+  
+  if(resource_i != -1){
+    resources_array[resource_i].instances++;
+  //  packet_add_uint32(r_res, resources_array[resource_i].instances);
+  //En caso de que corresponda, desbloquea al primer proceso de la cola de bloqueados de ese recurso.  
+  }else{
+    uint32_t pid = packet_read_uint32(res);
+    //se envia el proceso a EXIT
+    //finish_process(pid);
+  }
+  packet_destroy(res);
+}
+
 process_t *wait_process_exec(int socket_cpu_dispatch, interrupt *exit,
                              char **name) {
   packet_t *res = packet_recieve(socket_cpu_dispatch);
@@ -344,6 +439,17 @@ process_t *wait_process_exec(int socket_cpu_dispatch, interrupt *exit,
       case IO_STDOUT_WRITE:
         response_io_stdout(res, nombre);
         break;
+      case IO_FS_CREATE: {
+        response_io_fs_create(res, nombre);
+        break;
+      }
+      case WAIT:{
+        response_wait(res);
+      }
+      case SIGNAL:{
+        response_signal(res);
+        break;
+      }
       default:
         break;
       }
@@ -849,6 +955,8 @@ int main(int argc, char *argv[]) {
   initial_quantum = config_get_int_value(config, "QUANTUM");
   instancias_recursos = config_get_array_value(config, "INSTANCIAS_RECURSOS");
   recursos = config_get_array_value(config, "RECURSOS");
+  initialize_resources(instancias_recursos, recursos);
+
   grado_multiprogramacion =
       config_get_int_value(config, "GRADO_MULTIPROGRAMACION");
   path_instrucciones = config_get_string_value(config, "PATH_INSTRUCCIONES");
