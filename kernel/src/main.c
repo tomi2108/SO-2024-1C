@@ -137,7 +137,7 @@ void free_io(void *e) {
 
 void print_process_queue(t_queue *queue, char *status) {
   if (queue_is_empty(queue)) {
-    printf("La cola %s esta vacia\n", status);
+    printf("[%s] empty\n", status);
     return;
   }
 
@@ -925,14 +925,14 @@ void list_processes(void) {
   if (exec != NULL) {
     process_print(*exec, "EXEC");
   } else {
-    printf("No hay ningun proceso en EXEC\n");
+    printf("[EXEC] empty\n");
   }
   pthread_mutex_unlock(&mutex_exec);
 
   pthread_mutex_lock(&mutex_blocked);
   if (list_size(blocked) == 0) {
     pthread_mutex_unlock(&mutex_blocked);
-    printf("No hay colas de BLOCKED\n");
+    printf("[BLOCKED] empty\n");
   } else {
     pthread_mutex_unlock(&mutex_blocked);
 
@@ -966,7 +966,7 @@ void list_processes(void) {
 
   pthread_mutex_lock(&mutex_finished);
   if (list_size(finished) == 0) {
-    printf("La lista de FINISHED esta vacia\n");
+    printf("[FINISHED] empty\n");
   }
   t_list_iterator *finished_iterator = list_iterator_create(finished);
   while (list_iterator_has_next(finished_iterator)) {

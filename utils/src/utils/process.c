@@ -63,8 +63,7 @@ process_t process_unpack(packet_t *packet) {
 }
 
 void process_print(process_t process, char *status) {
-  printf("Pid:%u Status:%s Path de instrucciones:%s \n", process.pid, status,
-         process.path);
+  printf("[%s] Pid:%u Instrucciones:%s \n", status, process.pid, process.path);
 }
 
 process_t *process_dup(process_t p_to_dup) {
