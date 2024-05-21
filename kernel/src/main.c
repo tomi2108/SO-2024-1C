@@ -465,6 +465,28 @@ void response_io_fs_create(packet_t *res, char *nombre) {
   packet_destroy(io_res);
 }
 
+process_t *response_resize(packet_t *res, int socket_cpu_dispatch,
+                           interrupt *exit, char **name) {
+  uint32_t pid = packet_read_uint32(res);
+  uint32_t size = packet_read_uint32(res);
+
+  packet_t *req = packet_create(RESIZE_PROCESS);
+  packet_add_uint32(req, pid);
+  packet_add_uint32(req, size);
+
+  int client_socket = connection_create_client(ip_memoria, puerto_memoria);
+  packet_send(req, client_socket);
+  packet_destroy(req);
+
+  packet_t *res_memoria = packet_recieve(client_socket);
+  if (res_memoria->type == OUT_OF_MEMORY) {
+    *exit = FINISH;
+    packet_destroy(res_memoria);
+    return request_cpu_interrupt(1, socket_cpu_dispatch);
+  }
+  packet_destroy(res_memoria);
+  return NULL;
+}
 process_t *response_wait(packet_t *res, int socket_cpu_dispatch,
                          interrupt *exit, char **name) {
   char *resource_name = packet_read_string(res);
@@ -483,10 +505,11 @@ process_t *response_wait(packet_t *res, int socket_cpu_dispatch,
     return NULL;
   }
   *exit = FINISH;
-  return NULL;
+  return request_cpu_interrupt(1, socket_cpu_dispatch);
 }
 
-void response_signal(packet_t *res, interrupt *exit) {
+process_t *response_signal(packet_t *res, interrupt *exit,
+                           int socket_cpu_dispatch) {
   char *resource_name = packet_read_string(res);
   int resource_i = get_resource_id(resource_name);
 
@@ -501,8 +524,10 @@ void response_signal(packet_t *res, interrupt *exit) {
       pthread_detach(th);
     }
     r->instances++;
-  } else
-    *exit = FINISH;
+    return NULL;
+  }
+  *exit = FINISH;
+  return request_cpu_interrupt(1, socket_cpu_dispatch);
 }
 
 int is_io_compatible(char *name, instruction_op op) {
@@ -553,36 +578,34 @@ process_t *wait_process_exec(int socket_cpu_dispatch, interrupt *exit,
     if (instruction_is_io(op)) {
       process_t *exit_process =
           response_io_call(op, res, socket_cpu_dispatch, name);
-      if (exit_process != NULL) {
-        *exit = BLOCK_IO;
-        packet_destroy(res);
-        return exit_process;
-      }
-      *exit = FINISH;
-      packet_destroy(res);
-      return request_cpu_interrupt(1, socket_cpu_dispatch);
-    }
-    if (op == SIGNAL) {
-      response_signal(res, exit);
-      if (*exit == FINISH) {
+      if (exit_process == NULL) {
+        *exit = FINISH;
         packet_destroy(res);
         return request_cpu_interrupt(1, socket_cpu_dispatch);
       }
+      *exit = BLOCK_IO;
       packet_destroy(res);
-      return NULL;
+      return exit_process;
     }
-    if (op == WAIT) {
+    switch (op) {
+    case SIGNAL: {
+      process_t *exit_process = response_signal(res, exit, socket_cpu_dispatch);
+      packet_destroy(res);
+      return exit_process;
+    }
+    case WAIT: {
       process_t *exit_process =
           response_wait(res, socket_cpu_dispatch, exit, name);
-      if (exit_process != NULL) {
-        packet_destroy(res);
-        return exit_process;
-      }
-      if (*exit == FINISH) {
-        packet_destroy(res);
-        return request_cpu_interrupt(1, socket_cpu_dispatch);
-      }
       packet_destroy(res);
+      return exit_process;
+    }
+    case RESIZE: {
+      process_t *exit_process =
+          response_resize(res, socket_cpu_dispatch, exit, name);
+      packet_destroy(res);
+      return exit_process;
+    }
+    default:
       return NULL;
     }
   }

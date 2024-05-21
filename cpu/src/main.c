@@ -188,12 +188,9 @@ void exec_instruction(instruction_op op, t_list *params,
     connection_close(socket_memoria);
     break;
   }
-  case RESIZE: {
-    int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
+  case RESIZE:
     instruction_resize(params, socket_memoria, pid);
-    connection_close(socket_memoria);
     break;
-  }
   case IO_STDIN_READ:
     instruction_io_stdin(params, instruction_packet, &translate_address, pid);
     break;

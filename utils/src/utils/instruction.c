@@ -176,21 +176,12 @@ void instruction_mov_out(t_list *params, int client_socket, t_log *logger,
   packet_destroy(req);
 }
 
-int instruction_resize(t_list *params, int client_socket, uint32_t pid) {
-
+void instruction_resize(t_list *params, packet_t *instruction_packet,
+                        uint32_t pid) {
   param *first_param = list_get(params, 0);
 
-  packet_t *req = packet_create(RESIZE_PROCESS);
-  packet_add_uint32(req, pid);
-  packet_add_uint32(req, *(uint32_t *)first_param->value);
-  packet_send(req, client_socket);
-  packet_destroy(req);
-
-  packet_t *res = packet_recieve(client_socket);
-  status_code status = status_unpack(res);
-  if (status == OK)
-    return 0;
-  return -1;
+  packet_add_uint32(instruction_packet, pid);
+  packet_add_uint32(instruction_packet, *(uint32_t *)first_param->value);
 }
 
 void instruction_copy_string(t_list *params, uint32_t *si, uint32_t *di) {
@@ -237,7 +228,6 @@ void instruction_io_fs_create(t_list *params, packet_t *instruction_packet,
   packet_add_string(instruction_packet, interface_name);
   packet_add_string(instruction_packet, file_name);
   packet_add_uint32(instruction_packet, pid);
-  log_info(logger, "PID: %u - se crea archivo %s", pid, file_name);
 }
 
 void instruction_io_fs_delete(t_list *parms, packet_t *instruction_packet,
@@ -258,11 +248,6 @@ void instruction_wait(t_list *params, packet_t *instruction_packet,
 
   packet_add_string(instruction_packet, resource);
   packet_add_uint32(instruction_packet, pid);
-
-  // packet_t *res = packet_recieve(socket);
-  // uint32_t instances = packet_read_uint32(res);
-  // log_info(logger, "PID: %u - WAIT - Resource: %s- Instances: %u", pid,
-  // resource, instances); packet_destroy(res);
 }
 
 void instruction_signal(t_list *params, packet_t *instruction_packet,
@@ -271,8 +256,4 @@ void instruction_signal(t_list *params, packet_t *instruction_packet,
 
   packet_add_string(instruction_packet, resource);
   packet_add_uint32(instruction_packet, pid);
-  // packet_t *res = packet_recieve(socket);
-  // uint32_t instances = packet_read_uint32(res);
-  // log_info(logger, "PID: %u - SIGNAL - Resource: %s - Instances: %u", pid,
-  // resource, instances); packet_destroy(res);
 }

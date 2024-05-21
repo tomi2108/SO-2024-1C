@@ -135,11 +135,12 @@ void instruction_mov_out(t_list *params, int client_socket, t_log *logger,
 /**
  * @fn     instruction_resize
  * @param  params  Parameters to the RESIZE instruction
- * @param  socket  Socket to send the resolution of RESIZE
+ * @param  instruction_packet
  * @param  pid     Pid from process
  * @brief  RESIZE instruction implementation
  */
-int instruction_resize(t_list *params, int client_socket, uint32_t pid);
+void instruction_resize(t_list *params, packet_t *instruction_packet,
+                        uint32_t pid);
 
 /**
  * @fn     instruction_copy_string
