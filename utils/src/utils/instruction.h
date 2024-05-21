@@ -56,12 +56,20 @@ char *instruction_op_to_string(instruction_op op);
 instruction_op instruction_op_from_string(char *string);
 
 /**
- * @fn     instruction_is_blocking
- * @param  op Instruction op to check if it is blocking
- * @return 1 if the instruction_op is blocking, 0 if not
- * @brief  Checks if a instruction_op is blocking
+ * @fn     instruction_is_syscall
+ * @param  op Instruction op to check if it is a syscall
+ * @return 1 if the instruction_op is a syscall, 0 if not
+ * @brief  Checks if a instruction_op is syscall
  */
-int instruction_is_blocking(instruction_op op);
+int instruction_is_syscall(instruction_op op);
+
+/**
+ * @fn     instruction_is_io
+ * @param  op Instruction op to check if it is an io call
+ * @return 1 if the instruction_op is an io call, 0 if not
+ * @brief  Checks if a instruction_op is an io call
+ */
+int instruction_is_io(instruction_op op);
 
 /**
  * @fn     instruction_set

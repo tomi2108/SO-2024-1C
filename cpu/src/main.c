@@ -203,6 +203,18 @@ void exec_instruction(instruction_op op, t_list *params,
   case IO_FS_CREATE:
     instruction_io_fs_create(params, instruction_packet, logger, pid);
     break;
+  case IO_FS_DELETE:
+    instruction_io_fs_delete(params, instruction_packet, logger, pid);
+    break;
+  case IO_FS_READ:
+    instruction_io_fs_read(params, instruction_packet, logger, pid);
+    break;
+  case IO_FS_WRITE:
+    instruction_io_fs_write(params, instruction_packet, logger, pid);
+    break;
+  case IO_FS_TRUNCATE:
+    instruction_io_fs_truncate(params, instruction_packet, logger, pid);
+    break;
   case WAIT:
     instruction_wait(params, instruction_packet, logger, pid);
     break;

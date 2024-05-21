@@ -15,6 +15,7 @@
 #include <utils/exit.h>
 #include <utils/file.h>
 #include <utils/instruction.h>
+#include <utils/io_type.h>
 #include <utils/packet.h>
 #include <utils/process.h>
 #include <utils/status.h>
@@ -23,23 +24,27 @@
 #define FILE_LINE_MAX_LENGTH 80
 
 typedef enum {
-  BLOCK = 1,
+  BLOCK_IO = 1,
   FINISH = 2,
+  BLOCK_R = 3,
 } interrupt;
 
 typedef struct {
   int socket;
-  char *type;
+  io_type type;
   int queue_index;
   sem_t sem_queue_full;
+  pthread_mutex_t mutex_queue;
 } io;
-
 t_dictionary *io_dict;
 
 typedef struct {
-    char *name;
-    uint32_t instances;
+  char *name;
+  int instances;
+  int queue_index;
+  pthread_mutex_t mutex_queue;
 } resource;
+
 resource *resources_array;
 
 void exec_script(char *path);
@@ -75,6 +80,7 @@ t_list *finished;
 t_queue *vrr_aux_queue;
 
 pthread_mutex_t mutex_io_dict;
+pthread_mutex_t mutex_resources_array;
 pthread_mutex_t mutex_multiprogramacion;
 pthread_mutex_t mutex_scheduler;
 
@@ -93,32 +99,39 @@ sem_t sem_exec_empty;
 
 sem_t sem_scheduler;
 
-void initialize_resources(char **recursos, char **instancias_recursos){
+void initialize_resources(char **recursos, char **instancias_recursos) {
   num_resources = 0;
   while (recursos[num_resources] != NULL)
-  {
     num_resources++;
-  }
 
   resources_array = malloc(num_resources * sizeof(resource));
+  for (int i = 0; i < num_resources; i++) {
+    int instances = atoi(instancias_recursos[i]);
 
-    for (int i = 0; i < num_resources; i++) {
-        char *resource_name = recursos[i];
-        uint32_t instances = atoi(instancias_recursos[i]);
+    t_queue *io_queue = queue_create();
+    pthread_mutex_lock(&mutex_blocked);
+    int index = list_add(blocked, io_queue);
+    pthread_mutex_unlock(&mutex_blocked);
+    pthread_mutex_init(&resources_array[i].mutex_queue, NULL);
 
-        resources_array[i].name = strdup(resource_name);
-        resources_array[i].instances = instances;
-    }
+    resources_array[i].name = strdup(recursos[i]);
+    resources_array[i].instances = instances;
+    resources_array[i].queue_index = index;
+  }
 }
 
-void create_file(char *interface, char *filename){
+void free_resources(resource *resource_array) {
+  for (int i = 0; i < num_resources; i++) {
+    pthread_mutex_destroy(&resources_array[i].mutex_queue);
+    free(resources_array[i].name);
+    free(&resources_array[i]);
+  }
 }
-
 
 void free_io(void *e) {
   io *interface = (io *)e;
-  free(interface->type);
   sem_destroy(&interface->sem_queue_full);
+  pthread_mutex_destroy(&interface->mutex_queue);
   free(interface);
 }
 
@@ -203,7 +216,7 @@ void response_register_io(packet_t *request, int io_socket) {
            tipo_interfaz, nombre);
 
   io *interfaz = malloc(sizeof(io));
-  interfaz->type = strdup(tipo_interfaz);
+  interfaz->type = io_type_from_string(tipo_interfaz);
   free(tipo_interfaz);
   interfaz->socket = io_socket;
   t_queue *io_queue = queue_create();
@@ -214,6 +227,8 @@ void response_register_io(packet_t *request, int io_socket) {
 
   interfaz->queue_index = index;
   sem_init(&interfaz->sem_queue_full, 1, 0);
+  pthread_mutex_init(&interfaz->mutex_queue, NULL);
+
   pthread_mutex_lock(&mutex_io_dict);
   dictionary_put(io_dict, nombre, interfaz);
   pthread_mutex_unlock(&mutex_io_dict);
@@ -225,8 +240,11 @@ void response_register_io(packet_t *request, int io_socket) {
     if (status == OK) {
       pthread_mutex_lock(&mutex_blocked);
       t_queue *blocked_queue = list_get(blocked, interfaz->queue_index);
-      process_t *blocked_process = queue_pop(blocked_queue);
       pthread_mutex_unlock(&mutex_blocked);
+
+      pthread_mutex_lock(&interfaz->mutex_queue);
+      process_t *blocked_process = queue_pop(blocked_queue);
+      pthread_mutex_unlock(&interfaz->mutex_queue);
 
       if (strcmp(algoritmo_planificacion, "VRR") == 0) {
         send_to_vrr_aux(blocked_process);
@@ -243,6 +261,13 @@ void response_register_io(packet_t *request, int io_socket) {
   pthread_mutex_lock(&mutex_blocked);
   list_remove(blocked, interfaz->queue_index);
   pthread_mutex_unlock(&mutex_blocked);
+
+  pthread_mutex_lock(&mutex_io_dict);
+  dictionary_remove(io_dict, nombre);
+  pthread_mutex_unlock(&mutex_io_dict);
+
+  free(nombre);
+  free_io(interfaz);
 }
 
 void *atender_cliente(void *args) {
@@ -287,6 +312,76 @@ void init_process(char *path) {
   }
 };
 
+int get_resource_id(char *resource) {
+  int resource_i = -1;
+  for (int i = 0; i < num_resources; i++) {
+    pthread_mutex_lock(&mutex_resources_array);
+    if (strcmp(resources_array[i].name, resource) == 0) {
+      pthread_mutex_unlock(&mutex_resources_array);
+      resource_i = i;
+      break;
+    }
+    pthread_mutex_unlock(&mutex_resources_array);
+  }
+
+  return resource_i;
+}
+
+void block_process_io(char *io_name, process_t *process) {
+  pthread_mutex_lock(&mutex_io_dict);
+  io *interfaz = dictionary_get(io_dict, io_name);
+  pthread_mutex_unlock(&mutex_io_dict);
+
+  pthread_mutex_lock(&mutex_blocked);
+  t_queue *blocked_queue = list_get(blocked, interfaz->queue_index);
+  pthread_mutex_unlock(&mutex_blocked);
+
+  pthread_mutex_lock(&interfaz->mutex_queue);
+  queue_push(blocked_queue, process);
+  pthread_mutex_unlock(&interfaz->mutex_queue);
+
+  sem_post(&interfaz->sem_queue_full);
+  log_info(logger, "Se envia el proceso %u a BLOCKED de la interfaz %s",
+           process->pid, io_name);
+}
+
+void block_process_resource(char *resource_name, process_t *process) {
+  int r_id = get_resource_id(resource_name);
+
+  pthread_mutex_lock(&mutex_resources_array);
+  resource r = resources_array[r_id];
+  pthread_mutex_unlock(&mutex_resources_array);
+
+  int blocked_queue_index = r.queue_index;
+  pthread_mutex_lock(&mutex_blocked);
+  t_queue *blocked_queue = list_get(blocked, blocked_queue_index);
+  pthread_mutex_unlock(&mutex_blocked);
+  pthread_mutex_lock(&r.mutex_queue);
+  queue_push(blocked_queue, process);
+  pthread_mutex_unlock(&r.mutex_queue);
+}
+
+void *unblock_process_resource(void *arg) {
+  char *resource_name = (char *)arg;
+  int r_id = get_resource_id(resource_name);
+
+  pthread_mutex_lock(&mutex_resources_array);
+  resource r = resources_array[r_id];
+  pthread_mutex_unlock(&mutex_resources_array);
+
+  int blocked_queue_index = r.queue_index;
+  pthread_mutex_lock(&mutex_blocked);
+  t_queue *blocked_queue = list_get(blocked, blocked_queue_index);
+  pthread_mutex_unlock(&mutex_blocked);
+
+  pthread_mutex_lock(&r.mutex_queue);
+  process_t *unblocked_process = queue_pop(blocked_queue);
+  pthread_mutex_unlock(&r.mutex_queue);
+
+  send_to_ready(unblocked_process);
+  free(resource_name);
+  return NULL;
+}
 process_t *request_cpu_interrupt(int interrupt, int socket_cpu_dispatch) {
   int socket_cpu_interrupt =
       connection_create_client(ip_cpu, puerto_cpu_interrupt);
@@ -312,7 +407,6 @@ void response_io_gen_sleep(packet_t *res, char *nombre) {
   packet_t *io_res = packet_create(REGISTER_IO);
 
   uint32_t tiempo_espera = packet_read_uint32(res);
-  packet_destroy(res);
   packet_add_uint32(io_res, tiempo_espera);
 
   packet_send(io_res, interfaz->socket);
@@ -326,7 +420,6 @@ void response_io_stdin(packet_t *res, char *nombre) {
   uint32_t address = packet_read_uint32(res);
   uint32_t pid = packet_read_uint32(res);
   uint32_t size = packet_read_uint32(res);
-  packet_destroy(res);
   packet_add_uint32(io_res, address);
   packet_add_uint32(io_res, pid);
   packet_add_uint32(io_res, size);
@@ -336,13 +429,15 @@ void response_io_stdin(packet_t *res, char *nombre) {
 }
 
 void response_io_stdout(packet_t *res, char *nombre) {
+  pthread_mutex_lock(&mutex_io_dict);
   io *interfaz = dictionary_get(io_dict, nombre);
+  pthread_mutex_unlock(&mutex_io_dict);
+
   packet_t *io_res = packet_create(REGISTER_IO);
 
   uint32_t address = packet_read_uint32(res);
   uint32_t pid = packet_read_uint32(res);
   uint32_t size = packet_read_uint32(res);
-  packet_destroy(res);
   packet_add_uint32(io_res, address);
   packet_add_uint32(io_res, pid);
   packet_add_uint32(io_res, size);
@@ -351,116 +446,145 @@ void response_io_stdout(packet_t *res, char *nombre) {
   packet_destroy(io_res);
 }
 
-void response_io_fs_create(packet_t *res, char *nombre){
+void response_io_fs_create(packet_t *res, char *nombre) {
+  pthread_mutex_lock(&mutex_io_dict);
   io *interfaz = dictionary_get(io_dict, nombre);
-  packet_t *io_res = packet_create(REGISTER_IO);
+  pthread_mutex_unlock(&mutex_io_dict);
 
-  char *interface_type = packet_read_string(res);
   char *file_name = packet_read_string(res);
   uint32_t pid = packet_read_uint32(res);
 
-  create_file(interface_type, file_name);
-  packet_destroy(res);
+  packet_t *io_res = packet_create(REGISTER_IO);
+  instruction_op op = IO_FS_CREATE;
+
+  packet_add(io_res, &op, sizeof(instruction_op));
+  packet_add_string(io_res, file_name);
   packet_add_uint32(io_res, pid);
 
   packet_send(io_res, interfaz->socket);
   packet_destroy(io_res);
-
 }
 
-int get_resource_id(char *resource){
-   int resource_i = -1;
-   for (int i = 0; i < num_resources; i++) {
-      if (strcmp(resources_array[i].name, resource) == 0) {
-        resource_i = i;
-        break;
-      }
+process_t *response_wait(packet_t *res, int socket_cpu_dispatch,
+                         interrupt *exit, char **name) {
+  char *resource_name = packet_read_string(res);
+  int resource_i = get_resource_id(resource_name);
+  pthread_mutex_lock(&mutex_resources_array);
+  resource *r = &resources_array[resource_i];
+  pthread_mutex_unlock(&mutex_resources_array);
+
+  if (resource_i != -1) {
+    r->instances--;
+    if (r->instances < 0) {
+      *exit = BLOCK_R;
+      *name = strdup(r->name);
+      return request_cpu_interrupt(1, socket_cpu_dispatch);
     }
-
-    return resource_i;
-}
-
-void response_wait(packet_t *res){
-    char *resource = packet_read_string(res);
-
-    int resource_i = get_resource_id(resource);
-
-    if(resource_i != -1){
-      if (resources_array[resource_i].instances > 0) {
-        resources_array[resource_i].instances--;
-      } else {
-    //process_block(current_process->pid);
-    //proceso que realizo WAIT pasa a la cola de bloqueados
-    //packet_add_uint32(r_res, resources_array[resource_i].instances);
-    }
-    }else{
-      uint32_t pid = packet_read_uint32(res);
-      //se envia el proceso a EXIT
-      //finish_process(pid);
-    }
-    packet_destroy(res);
-}
-void response_signal(packet_t *res){
-  char *resource = packet_read_string(res);
-
-  int resource_i = get_resource_id(resource);
-  
-  if(resource_i != -1){
-    resources_array[resource_i].instances++;
-  //  packet_add_uint32(r_res, resources_array[resource_i].instances);
-  //En caso de que corresponda, desbloquea al primer proceso de la cola de bloqueados de ese recurso.  
-  }else{
-    uint32_t pid = packet_read_uint32(res);
-    //se envia el proceso a EXIT
-    //finish_process(pid);
+    return NULL;
   }
-  packet_destroy(res);
+  *exit = FINISH;
+  return NULL;
 }
 
+void response_signal(packet_t *res, interrupt *exit) {
+  char *resource_name = packet_read_string(res);
+  int resource_i = get_resource_id(resource_name);
+
+  pthread_mutex_lock(&mutex_resources_array);
+  resource *r = &resources_array[resource_i];
+  pthread_mutex_unlock(&mutex_resources_array);
+
+  if (resource_i != -1) {
+    if (r->instances < 0) {
+      pthread_t th;
+      pthread_create(&th, NULL, &unblock_process_resource, resource_name);
+      pthread_detach(th);
+    }
+    r->instances++;
+  } else
+    *exit = FINISH;
+}
+
+int is_io_compatible(char *name, instruction_op op) {
+  pthread_mutex_lock(&mutex_io_dict);
+  if (dictionary_has_key(io_dict, name)) {
+    io *io = dictionary_get(io_dict, name);
+    pthread_mutex_unlock(&mutex_io_dict);
+    return io_type_is_compatible(io->type, op);
+  }
+  return 0;
+}
+
+process_t *response_io_call(instruction_op op, packet_t *res,
+                            int socket_cpu_dispatch, char **name) {
+  char *nombre = packet_read_string(res);
+  *name = strdup(nombre);
+  if (is_io_compatible(nombre, op)) {
+    switch (op) {
+    case IO_GEN_SLEEP:
+      response_io_gen_sleep(res, nombre);
+      break;
+    case IO_STDIN_READ:
+      response_io_stdin(res, nombre);
+      break;
+    case IO_STDOUT_WRITE:
+      response_io_stdout(res, nombre);
+      break;
+    case IO_FS_CREATE:
+      response_io_fs_create(res, nombre);
+      break;
+    default:
+      break;
+    }
+    return request_cpu_interrupt(1, socket_cpu_dispatch);
+  }
+  return NULL;
+}
 process_t *wait_process_exec(int socket_cpu_dispatch, interrupt *exit,
                              char **name) {
   packet_t *res = packet_recieve(socket_cpu_dispatch);
   switch (res->type) {
   case INSTRUCTION: {
     instruction_op op = packet_read_uint32(res);
-    if (!instruction_is_blocking(op))
-      return NULL;
-
-    char *nombre = packet_read_string(res);
-    *name = strdup(nombre);
-    if (dictionary_has_key(io_dict, nombre)) {
-      switch (op) {
-      case IO_GEN_SLEEP:
-        response_io_gen_sleep(res, nombre);
-        break;
-      case IO_STDIN_READ:
-        response_io_stdin(res, nombre);
-        break;
-      case IO_STDOUT_WRITE:
-        response_io_stdout(res, nombre);
-        break;
-      case IO_FS_CREATE: {
-        response_io_fs_create(res, nombre);
-        break;
-      }
-      case WAIT:{
-        response_wait(res);
-      }
-      case SIGNAL:{
-        response_signal(res);
-        break;
-      }
-      default:
-        break;
-      }
-      *exit = BLOCK;
-      return request_cpu_interrupt(1, socket_cpu_dispatch);
-    } else {
+    if (!instruction_is_syscall(op)) {
       packet_destroy(res);
+      return NULL;
+    }
+    if (instruction_is_io(op)) {
+      process_t *exit_process =
+          response_io_call(op, res, socket_cpu_dispatch, name);
+      if (exit_process != NULL) {
+        *exit = BLOCK_IO;
+        packet_destroy(res);
+        return exit_process;
+      }
       *exit = FINISH;
+      packet_destroy(res);
       return request_cpu_interrupt(1, socket_cpu_dispatch);
     }
-    free(nombre);
+    if (op == SIGNAL) {
+      response_signal(res, exit);
+      if (*exit == FINISH) {
+        packet_destroy(res);
+        return request_cpu_interrupt(1, socket_cpu_dispatch);
+      }
+      packet_destroy(res);
+      return NULL;
+    }
+    if (op == WAIT) {
+      process_t *exit_process =
+          response_wait(res, socket_cpu_dispatch, exit, name);
+      if (exit_process != NULL) {
+        packet_destroy(res);
+        return exit_process;
+      }
+      if (*exit == FINISH) {
+        packet_destroy(res);
+        return request_cpu_interrupt(1, socket_cpu_dispatch);
+      }
+      packet_destroy(res);
+      return NULL;
+    }
   }
   case PROCESS: {
     // en caso que el proceso termine sin ejecutar nada
@@ -525,20 +649,6 @@ void end_process(process_t *process) {
   sem_post(&sem_ready_empty);
 }
 
-void block_process(char *io_name, process_t *process) {
-  pthread_mutex_lock(&mutex_io_dict);
-  io *interfaz = dictionary_get(io_dict, io_name);
-  pthread_mutex_unlock(&mutex_io_dict);
-
-  pthread_mutex_lock(&mutex_blocked);
-  t_queue *blocked_queue = list_get(blocked, interfaz->queue_index);
-  queue_push(blocked_queue, process);
-  sem_post(&interfaz->sem_queue_full);
-  pthread_mutex_unlock(&mutex_blocked);
-  log_info(logger, "Se envia el proceso %u a BLOCKED de la interfaz %s",
-           process->pid, io_name);
-}
-
 void planificacion_vrr() {
   int socket_cpu_dispatch =
       connection_create_client(ip_cpu, puerto_cpu_dispatch);
@@ -584,8 +694,11 @@ void planificacion_vrr() {
              updated_process->pid);
   } else if (exit == FINISH) {
     end_process(updated_process);
-  } else if (exit == BLOCK)
-    block_process(name, updated_process);
+  } else if (exit == BLOCK_IO) {
+    block_process_io(name, updated_process);
+  } else if (exit == BLOCK_R) {
+    block_process_resource(name, updated_process);
+  }
   free(name);
 
   connection_close(socket_cpu_dispatch);
@@ -622,8 +735,10 @@ void planificacion_rr() {
              updated_process->pid);
   } else if (exit == FINISH) {
     end_process(updated_process);
-  } else if (exit == BLOCK)
-    block_process(name, updated_process);
+  } else if (exit == BLOCK_IO) {
+    block_process_io(name, updated_process);
+  } else if (exit == BLOCK_R)
+    block_process_resource(name, updated_process);
   free(name);
 
   connection_close(socket_cpu_dispatch);
@@ -652,8 +767,10 @@ void planificacion_fifo() {
 
   if (exit == FINISH)
     end_process(updated_process);
-  else if (exit == BLOCK)
-    block_process(name, updated_process);
+  else if (exit == BLOCK_IO)
+    block_process_io(name, updated_process);
+  else if (exit == BLOCK_R)
+    block_process_resource(name, updated_process);
 
   free(name);
   connection_close(socket_cpu_dispatch);
@@ -777,6 +894,24 @@ void finish_process(uint32_t pid) {
   // end_process(process);
 }
 
+void print_io_queue(char *name, void *value) {
+  io *interfaz = (io *)value;
+  pthread_mutex_lock(&mutex_blocked);
+  t_queue *blocked_queue = list_get(blocked, interfaz->queue_index);
+  pthread_mutex_unlock(&mutex_blocked);
+
+  uint32_t queue_name_length = (9 + strlen(name)) * sizeof(char);
+  char *queue_name = malloc(queue_name_length);
+  memset(queue_name, 0, queue_name_length);
+  strcat(queue_name, "BLOCKED ");
+  strcat(queue_name, name);
+
+  pthread_mutex_lock(&interfaz->mutex_queue);
+  print_process_queue(blocked_queue, queue_name);
+  pthread_mutex_unlock(&interfaz->mutex_queue);
+  free(queue_name);
+}
+
 void list_processes(void) {
   pthread_mutex_lock(&mutex_new);
   print_process_queue(new_queue, "NEW");
@@ -796,16 +931,38 @@ void list_processes(void) {
 
   pthread_mutex_lock(&mutex_blocked);
   if (list_size(blocked) == 0) {
+    pthread_mutex_unlock(&mutex_blocked);
     printf("No hay colas de BLOCKED\n");
-  }
+  } else {
+    pthread_mutex_unlock(&mutex_blocked);
 
-  t_list_iterator *blocked_iterator = list_iterator_create(blocked);
-  while (list_iterator_has_next(blocked_iterator)) {
-    t_queue *blocked_queue = list_iterator_next(blocked_iterator);
-    print_process_queue(blocked_queue, "BLOCKED");
+    pthread_mutex_lock(&mutex_io_dict);
+    if (dictionary_size(io_dict) > 0) {
+      dictionary_iterator(io_dict, &print_io_queue);
+      pthread_mutex_unlock(&mutex_io_dict);
+    } else
+      pthread_mutex_unlock(&mutex_io_dict);
+
+    for (int i = 0; i < num_resources; i++) {
+      pthread_mutex_lock(&mutex_resources_array);
+      resource r = resources_array[i];
+      pthread_mutex_unlock(&mutex_resources_array);
+
+      pthread_mutex_lock(&mutex_blocked);
+      t_queue *blocked_queue = list_get(blocked, r.queue_index);
+      pthread_mutex_unlock(&mutex_blocked);
+
+      uint32_t queue_name_length = (9 + strlen(r.name)) * sizeof(char);
+      char *queue_name = malloc(queue_name_length);
+      memset(queue_name, 0, queue_name_length);
+      strcat(queue_name, "BLOCKED ");
+      strcat(queue_name, r.name);
+
+      pthread_mutex_lock(&resources_array[i].mutex_queue);
+      print_process_queue(blocked_queue, queue_name);
+      pthread_mutex_unlock(&resources_array[i].mutex_queue);
+    }
   }
-  pthread_mutex_unlock(&mutex_blocked);
-  list_iterator_destroy(blocked_iterator);
 
   pthread_mutex_lock(&mutex_finished);
   if (list_size(finished) == 0) {
@@ -955,7 +1112,6 @@ int main(int argc, char *argv[]) {
   initial_quantum = config_get_int_value(config, "QUANTUM");
   instancias_recursos = config_get_array_value(config, "INSTANCIAS_RECURSOS");
   recursos = config_get_array_value(config, "RECURSOS");
-  initialize_resources(instancias_recursos, recursos);
 
   grado_multiprogramacion =
       config_get_int_value(config, "GRADO_MULTIPROGRAMACION");
@@ -992,6 +1148,7 @@ int main(int argc, char *argv[]) {
   sem_init(&sem_exec_empty, 1, 1);
   sem_init(&sem_scheduler, 1, 0);
 
+  initialize_resources(recursos, instancias_recursos);
   int server_socket = connection_create_server(puerto_escucha);
   if (server_socket == -1)
     exit_server_connection_error(logger);
@@ -1032,6 +1189,7 @@ int main(int argc, char *argv[]) {
   sem_destroy(&sem_exec_empty);
   sem_destroy(&sem_scheduler);
 
+  free_resources(resources_array);
   dictionary_destroy_and_destroy_elements(io_dict, &free_io);
   queue_destroy_and_destroy_elements(new_queue, (void *)&process_destroy);
   queue_destroy_and_destroy_elements(ready_queue, (void *)&process_destroy);

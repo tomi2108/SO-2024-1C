@@ -1,6 +1,7 @@
 #ifndef UTILS_FILE_H_
 #define UTILS_FILE_H_
 
+#include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -49,5 +50,9 @@ uint8_t file_exists(char *path);
  * @brief  Creates a file in the file system
  */
 void file_create(char *path);
+
+struct flock file_lock(int fd, short l_type, off_t l_start, off_t l_len);
+
+void file_unlock(int fd, struct flock lock);
 
 #endif

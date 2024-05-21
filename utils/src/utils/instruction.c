@@ -1,4 +1,5 @@
 #include "instruction.h"
+#include "io_type.h"
 #include <stdint.h>
 
 char *instruction_op_to_string(instruction_op op) {
@@ -68,10 +69,16 @@ instruction_op instruction_op_from_string(char *op) {
   return UNKNOWN_INSTRUCTION;
 }
 
-int instruction_is_blocking(instruction_op op) {
-  if (op == IO_GEN_SLEEP || op == IO_STDIN_READ || op == IO_STDOUT_WRITE)
+int instruction_is_io(instruction_op op) {
+  if (io_type_gen_is_compatible(op) || io_type_stdin_is_compatible(op) ||
+      io_type_dialfs_is_compatible(op) || io_type_stdout_is_compatible(op))
     return 1;
+  return 0;
+}
 
+int instruction_is_syscall(instruction_op op) {
+  if (instruction_is_io(op) || op == WAIT || op == SIGNAL)
+    return 1;
   return 0;
 }
 
@@ -222,40 +229,50 @@ void instruction_io_stdout(t_list *params, packet_t *instruction_packet,
   packet_add_uint32(instruction_packet, *(uint32_t *)third_param->value);
 }
 
-void instruction_io_fs_create(t_list *params, packet_t *instruction_packet, t_log* logger, uint32_t pid){
-  char *interface_type = ((param *)list_get(params, 0))->value;
+void instruction_io_fs_create(t_list *params, packet_t *instruction_packet,
+                              t_log *logger, uint32_t pid) {
+  char *interface_name = ((param *)list_get(params, 0))->value;
   char *file_name = ((param *)list_get(params, 1))->value;
 
-  packet_add_string(instruction_packet, interface_type);
+  packet_add_string(instruction_packet, interface_name);
   packet_add_string(instruction_packet, file_name);
   packet_add_uint32(instruction_packet, pid);
-
- //packet_t *res = packet_recieve(client_socket);
-  //log_info(logger,
-    //       "PID: %u - se crea archivo", pid);
-  //packet_destroy(res);
+  log_info(logger, "PID: %u - se crea archivo %s", pid, file_name);
 }
 
-void instruction_wait(t_list *params, packet_t *instruction_packet, t_log* logger, uint32_t pid) {
-    char *resource = ((param *)list_get(params, 0))->value;
+void instruction_io_fs_delete(t_list *parms, packet_t *instruction_packet,
+                              t_log *logger, uint32_t pid) {}
 
-    packet_add_string(instruction_packet, resource);
-    packet_add_uint32(instruction_packet, pid);
+void instruction_io_fs_read(t_list *parms, packet_t *instruction_packet,
+                            t_log *logger, uint32_t pid) {}
 
-    //packet_t *res = packet_recieve(socket);
-    //uint32_t instances = packet_read_uint32(res);
-    //log_info(logger, "PID: %u - WAIT - Resource: %s- Instances: %u", pid, resource, instances);
-    //packet_destroy(res);
+void instruction_io_fs_write(t_list *parms, packet_t *instruction_packet,
+                             t_log *logger, uint32_t pid) {}
+
+void instruction_io_fs_truncate(t_list *parms, packet_t *instruction_packet,
+                                t_log *logger, uint32_t pid) {}
+
+void instruction_wait(t_list *params, packet_t *instruction_packet,
+                      t_log *logger, uint32_t pid) {
+  char *resource = ((param *)list_get(params, 0))->value;
+
+  packet_add_string(instruction_packet, resource);
+  packet_add_uint32(instruction_packet, pid);
+
+  // packet_t *res = packet_recieve(socket);
+  // uint32_t instances = packet_read_uint32(res);
+  // log_info(logger, "PID: %u - WAIT - Resource: %s- Instances: %u", pid,
+  // resource, instances); packet_destroy(res);
 }
 
-void instruction_signal(t_list *params, packet_t *instruction_packet, t_log* logger, uint32_t pid) {
-    char *resource = ((param *)list_get(params, 0))->value;
+void instruction_signal(t_list *params, packet_t *instruction_packet,
+                        t_log *logger, uint32_t pid) {
+  char *resource = ((param *)list_get(params, 0))->value;
 
-    packet_add_string(instruction_packet, resource);
-    packet_add_uint32(instruction_packet, pid);
-    //packet_t *res = packet_recieve(socket);
-    //uint32_t instances = packet_read_uint32(res);
-    //log_info(logger, "PID: %u - SIGNAL - Resource: %s - Instances: %u", pid, resource, instances);
-    //packet_destroy(res);
+  packet_add_string(instruction_packet, resource);
+  packet_add_uint32(instruction_packet, pid);
+  // packet_t *res = packet_recieve(socket);
+  // uint32_t instances = packet_read_uint32(res);
+  // log_info(logger, "PID: %u - SIGNAL - Resource: %s - Instances: %u", pid,
+  // resource, instances); packet_destroy(res);
 }
-

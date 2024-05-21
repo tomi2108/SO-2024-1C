@@ -1,4 +1,5 @@
 #include "file.h"
+#include <fcntl.h>
 #include <stdio.h>
 
 char *file_concat_path(char *path, char *path2) {
@@ -37,4 +38,23 @@ uint8_t file_exists(char *path) {
 void file_create(char *path) {
   FILE *file = fopen(path, "w");
   fclose(file);
+}
+
+struct flock file_lock(int fd, short l_type, off_t l_start, off_t l_len) {
+  struct flock lock = {.l_len = l_len,
+                       .l_start = l_start,
+                       .l_pid = getpid(),
+                       .l_type = l_type,
+                       .l_whence = SEEK_SET};
+  fcntl(fd, F_SETLKW, lock);
+  return lock;
+}
+
+void file_unlock(int fd, struct flock lock) {
+  struct flock unlock = {.l_len = lock.l_len,
+                         .l_start = lock.l_start,
+                         .l_pid = getpid(),
+                         .l_type = F_UNLCK,
+                         .l_whence = SEEK_SET};
+  fcntl(fd, F_SETLKW, unlock);
 }

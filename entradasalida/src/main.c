@@ -1,13 +1,14 @@
-#include "utils/buffer.h"
 #include <commons/bitarray.h>
 #include <commons/config.h>
 #include <commons/log.h>
+#include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <utils/buffer.h>
 #include <utils/connection.h>
 #include <utils/exit.h>
 #include <utils/file.h>
@@ -128,32 +129,38 @@ void destroy_bitarray_bitmap(t_bitarray *bitarray) {
   bitarray_destroy(bitarray);
 }
 
-t_bitarray *get_bitarray_bitmap(void) {
+int get_bitmap_fd(int o_flags) {
   char *bitmap_path = parse_file_name("/bitmap.dat");
-  char *buffer = 0;
-  long length;
-  FILE *bitmap_file = fopen(bitmap_path, "rb");
+  int fd = open(bitmap_path, o_flags);
+  free(bitmap_path);
+  return fd;
+}
 
-  fseek(bitmap_file, 0, SEEK_END);
-  length = ftell(bitmap_file);
-  fseek(bitmap_file, 0, SEEK_SET);
+int get_blocks_fd(int o_flags) {
+  char *blocks_path = parse_file_name("/bloques.dat");
+  int fd = open(blocks_path, o_flags);
+  free(blocks_path);
+  return fd;
+}
+
+t_bitarray *get_bitarray_bitmap(int bitmap_fd) {
+  char *buffer = 0;
+  long length = block_count / 8;
 
   buffer = malloc((length + 1) * sizeof(char));
-  fread(buffer, sizeof(char), length, bitmap_file);
-
-  fclose(bitmap_file);
+  read(bitmap_fd, buffer, length * sizeof(char));
   buffer[length] = '\0';
 
   return bitarray_create_with_mode(buffer, block_count, MSB_FIRST);
 }
 
-void set_bitarray_bitmap(t_bitarray *bitarray) {
-  char *bitmap_path = parse_file_name("/bitmap.dat");
+void free_bitarray_bitmap(t_bitarray *bitarray, int bitmap_fd) {
+  close(bitmap_fd);
+  destroy_bitarray_bitmap(bitarray);
+}
 
-  FILE *bitmap_file = fopen(bitmap_path, "w");
-  fwrite(bitarray->bitarray, sizeof(char), block_count / 8, bitmap_file);
-
-  fclose(bitmap_file);
+void set_bitarray_bitmap(t_bitarray *bitarray, int bitmap_fd) {
+  write(bitmap_fd, bitarray->bitarray, sizeof(char) * block_count / 8);
 }
 
 int get_next_free_block(t_bitarray *bitarray) {
@@ -172,7 +179,6 @@ void alloc_n_blocks(t_bitarray *bitarray, uint32_t block_index, uint32_t n) {
     return;
   for (int i = 0; i < n; i++)
     bitarray_set_bit(bitarray, block_index + i);
-  set_bitarray_bitmap(bitarray);
 }
 
 void dealloc_n_blocks(t_bitarray *bitarray, uint32_t block_index, uint32_t n) {
@@ -180,31 +186,37 @@ void dealloc_n_blocks(t_bitarray *bitarray, uint32_t block_index, uint32_t n) {
     return;
   for (int i = 0; i < n; i++)
     bitarray_clean_bit(bitarray, block_index + i);
-  set_bitarray_bitmap(bitarray);
 }
 
 buffer_t *read_n_blocks(int initial_block, uint32_t n) {
-  char *file_name = parse_file_name("/bloques.dat");
   buffer_t *buff = buffer_create();
-  FILE *blocks = fopen(file_name, "r");
-  free(file_name);
-  fseek(blocks, initial_block * block_size, SEEK_SET);
   buff->stream = malloc(n * block_size);
-  fread(buff->stream, n, block_size, blocks);
-  fclose(blocks);
-  buff->size += n * block_size;
 
+  int fd = get_blocks_fd(O_RDONLY);
+  struct flock lock =
+      file_lock(fd, F_RDLCK, initial_block * block_size, n * block_size);
+
+  lseek(fd, initial_block * block_size, SEEK_SET);
+  read(fd, buff->stream, n * block_size);
+
+  file_unlock(fd, lock);
+
+  close(fd);
+  buff->size += n * block_size;
   return buff;
 }
 
 void write_n_blocks(int initial_block, uint32_t n, buffer_t *buff) {
-  char *file_name = parse_file_name("/bloques.dat");
-  FILE *blocks = fopen(file_name, "r+");
-  free(file_name);
+  int fd = get_blocks_fd(O_WRONLY);
+  struct flock lock =
+      file_lock(fd, F_WRLCK, initial_block * block_size, n * block_size);
 
-  fseek(blocks, initial_block * block_size, SEEK_SET);
-  fwrite(buff->stream, n, block_size, blocks);
-  fclose(blocks);
+  lseek(fd, initial_block * block_size, SEEK_SET);
+  write(fd, buff->stream, n * block_size);
+
+  file_unlock(fd, lock);
+
+  close(fd);
   buff->offset += n * block_size;
 }
 
@@ -233,17 +245,21 @@ void create_metadata(char *file_name, int initial_block) {
 void destroy_metadata(char *file_name) { remove(file_name); }
 
 void fs_create(char *file_name) {
-  t_bitarray *bitmap = get_bitarray_bitmap();
+  int bitmap_fd = get_bitmap_fd(O_RDWR);
+  struct flock lock = file_lock(bitmap_fd, F_WRLCK, 0, 0);
 
+  t_bitarray *bitmap = get_bitarray_bitmap(bitmap_fd);
   int free_block = get_next_free_block(bitmap);
   if (free_block == -1) {
     // no hay mas bloques libres
+    free_bitarray_bitmap(bitmap, bitmap_fd);
     return;
   }
-
   alloc_n_blocks(bitmap, free_block, 1);
-  destroy_bitarray_bitmap(bitmap);
+  set_bitarray_bitmap(bitmap, bitmap_fd);
+  file_unlock(bitmap_fd, lock);
 
+  free_bitarray_bitmap(bitmap, bitmap_fd);
   create_metadata(file_name, free_block);
 }
 
@@ -252,13 +268,20 @@ void fs_delete(char *file_name) {
   int initial_block = get_metadata(file_name, INITIAL_BLOCK_KEY);
   uint32_t file_block_count = file_size / block_size;
 
-  t_bitarray *bitmap = get_bitarray_bitmap();
+  int bitmap_fd = get_bitmap_fd(O_RDWR);
+  struct flock lock = file_lock(bitmap_fd, F_WRLCK, 0, 0);
+
+  t_bitarray *bitmap = get_bitarray_bitmap(bitmap_fd);
+
   if (file_block_count == 0)
     dealloc_n_blocks(bitmap, initial_block, 1);
   else
     dealloc_n_blocks(bitmap, initial_block, file_block_count);
+  set_bitarray_bitmap(bitmap, bitmap_fd);
 
-  destroy_bitarray_bitmap(bitmap);
+  file_unlock(bitmap_fd, lock);
+
+  free_bitarray_bitmap(bitmap, bitmap_fd);
   destroy_metadata(file_name);
 }
 
@@ -329,8 +352,8 @@ void compact(t_bitarray *bitmap) {
       if (bit_i && !bit_j) {
         compacts++;
         buffer_t *buff = read_n_blocks(i, 1);
-        bitarray_clean_bit(bitmap, i);
-        bitarray_set_bit(bitmap, j);
+        dealloc_n_blocks(bitmap, i, 1);
+        alloc_n_blocks(bitmap, j, 1);
         write_n_blocks(j, 1, buff);
         buffer_destroy(buff);
       }
@@ -378,33 +401,37 @@ void fs_truncate(char *file_name, packet_t *req) {
     return;
   int reduce = file_size > size;
 
+  int fd = get_bitmap_fd(O_RDWR);
+  struct flock lock = file_lock(fd, F_WRLCK, 0, 0);
+  t_bitarray *bitmap = get_bitarray_bitmap(fd);
+
   if (reduce) {
     uint32_t block_difference = (file_size - size) / block_size;
-    t_bitarray *bitmap = get_bitarray_bitmap();
     dealloc_n_blocks(bitmap, initial_block + file_blocks - block_difference,
                      block_difference);
-    bitarray_destroy(bitmap);
-    return;
-  }
-  t_bitarray *bitmap = get_bitarray_bitmap();
-  uint32_t block_difference = ceil_div(size - file_size, block_size);
-  int free_block = can_file_extend(bitmap, file_name, block_difference);
-  if (free_block == -2) // Out of memory
-  {
-    bitarray_destroy(bitmap);
-    return;
-  } else if (free_block == -1) {
-    buffer_t *buff = read_n_blocks(initial_block, file_size);
-    dealloc_n_blocks(bitmap, initial_block, file_size);
-    compact(bitmap);
-    int next_free_block = get_next_free_block(bitmap);
-    alloc_n_blocks(bitmap, next_free_block, file_size + block_difference);
-    write_n_blocks(free_block, file_size + block_difference, buff);
-    buffer_destroy(buff);
+    set_bitarray_bitmap(bitmap, fd);
   } else {
-    alloc_n_blocks(bitmap, free_block, size);
-    bitarray_destroy(bitmap);
+    uint32_t block_difference = ceil_div(size - file_size, block_size);
+    int free_block = can_file_extend(bitmap, file_name, block_difference);
+    if (free_block == -2) { // Out of memory
+      bitarray_destroy(bitmap);
+    } else if (free_block == -1) {
+      buffer_t *buff = read_n_blocks(initial_block, file_size);
+      dealloc_n_blocks(bitmap, initial_block, file_size);
+      compact(bitmap);
+      int next_free_block = get_next_free_block(bitmap);
+      alloc_n_blocks(bitmap, next_free_block, file_size + block_difference);
+      set_bitarray_bitmap(bitmap, fd);
+      write_n_blocks(free_block, file_size + block_difference, buff);
+      buffer_destroy(buff);
+    } else {
+      alloc_n_blocks(bitmap, free_block, size);
+      set_bitarray_bitmap(bitmap, fd);
+    }
   }
+
+  file_unlock(fd, lock);
+  free_bitarray_bitmap(bitmap, fd);
 }
 
 void interfaz_dialfs(packet_t *res, int socket_kernel) {
@@ -519,68 +546,22 @@ int main(int argc, char *argv[]) {
   path_base_dialfs = config_get_string_value(config, "PATH_BASE_DIALFS");
   block_size = config_get_int_value(config, "BLOCK_SIZE");
   block_count = config_get_int_value(config, "BLOCK_COUNT");
-  //
-  // buffer_t *buff = buffer_create();
-  // buff->stream = "xHxoxlxaxax1x2x3x4x5";
-  // buffer_t *buff3 = buffer_create();
-  // buff3->stream = "xsxoxl";
-  // buffer_t *buff5 = buffer_create();
-  // buff5->stream = "xSxoxyx xTxoxmxix x1x2x3x4x5x6x3xbxa";
-  // buffer_t *clean_buffer = buffer_create();
-  // clean_buffer->stream =
-  //     "........................................................................"
-  //     "........................................................................"
-  //     "........................................................................"
-  //     "....................";
 
-  buffer_t *buff = buffer_create();
-  buff->stream = "Holaa12345";
-  buffer_t *buff3 = buffer_create();
-  buff3->stream = "sol";
-  buffer_t *buff5 = buffer_create();
-  buff5->stream = "Soy Tomi 1234563ba";
-  buffer_t *clean_buffer = buffer_create();
-  clean_buffer->stream =
-      "........................................................................"
-      "........................................................";
-
-  t_bitarray *bitmap = get_bitarray_bitmap();
-  dealloc_n_blocks(bitmap, 0, block_count);
-  write_n_blocks(0, block_count, clean_buffer);
-
-  alloc_n_blocks(bitmap, 5, 10);
-  write_n_blocks(5, 10, buff);
-  alloc_n_blocks(bitmap, 48, 3);
-  write_n_blocks(48, 3, buff3);
-  alloc_n_blocks(bitmap, 110, 18);
-  write_n_blocks(110, 18, buff5);
-
-  print_bitarray(bitmap);
-  printf("----------------\n");
-  print_blocks();
-  printf("----------------\n");
-  compact(bitmap);
-  print_bitarray(bitmap);
-  printf("----------------\n");
-  print_blocks();
-
-  bitarray_destroy(bitmap);
-
-  // int socket_kernel = connection_create_client(ip_kernel, puerto_kernel);
-  // request_register_io(socket_kernel);
-  // while (1) {
-  //   packet_t *res = packet_recieve(socket_kernel);
-  //   if (strcmp(io_type, "generica") == 0) {
-  //     interfaz_generica(res, socket_kernel);
-  //   } else if (strcmp(io_type, "stdin") == 0) {
-  //     interfaz_stdin(res, socket_kernel);
-  //   } else if (strcmp(io_type, "stdout") == 0) {
-  //     interfaz_stdout(res, socket_kernel);
-  //   } else if (strcmp(io_type, "dialfs") == 0)
-  //     interfaz_dialfs(res, socket_kernel);
-  //   packet_destroy(res);
-  // }
-  // connection_close(socket_kernel);
+  int socket_kernel = connection_create_client(ip_kernel, puerto_kernel);
+  request_register_io(socket_kernel);
+  while (1) {
+    packet_t *res = packet_recieve(socket_kernel);
+    if (strcmp(io_type, "generica") == 0) {
+      interfaz_generica(res, socket_kernel);
+    } else if (strcmp(io_type, "stdin") == 0) {
+      interfaz_stdin(res, socket_kernel);
+    } else if (strcmp(io_type, "stdout") == 0) {
+      interfaz_stdout(res, socket_kernel);
+    } else if (strcmp(io_type, "dialfs") == 0)
+      interfaz_dialfs(res, socket_kernel);
+    packet_destroy(res);
+  }
+  connection_close(socket_kernel);
 
   log_destroy(logger);
   config_destroy(config);
