@@ -16,7 +16,13 @@ typedef enum {
   FETCH_INSTRUCTION,
   INSTRUCTION,
   REGISTER_IO,
-  PROCESS
+  PROCESS,
+  INTERRUPT,
+  RESIZE_PROCESS,
+  MEMORY_CONTENT,
+  OUT_OF_MEMORY,
+  FREE_PROCESS,
+  FETCH_FRAME_NUMBER
 } packet_type;
 
 typedef struct {
@@ -136,4 +142,5 @@ packet_t *packet_recieve(int socket);
  * @brief  Creates a new packet duplicated from the given packet.
  */
 packet_t *packet_dup(packet_t *packet);
+
 #endif

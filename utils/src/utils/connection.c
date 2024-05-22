@@ -4,8 +4,11 @@
 
 int handshake_server(packet_t *handshake_packet) {
   char *handshake_string = packet_read_string(handshake_packet);
-  if (strcmp("AGUANTE_MESSI", handshake_string) == 0)
+  if (strcmp("AGUANTE_MESSI", handshake_string) == 0) {
+    free(handshake_string);
     return 0;
+  }
+  free(handshake_string);
   return -1;
 }
 
@@ -16,7 +19,7 @@ int handshake_client(int socket) {
   packet_destroy(packet);
 
   packet_t *res = packet_recieve(socket);
-  status_code res_status = status_read_packet(res);
+  status_code res_status = status_unpack(res);
   packet_destroy(res);
 
   if (res_status == OK)
@@ -93,14 +96,14 @@ int connection_accept_client(int fd_server_socket) {
   int handshake_result = handshake_server(handshake_packet);
   packet_destroy(handshake_packet);
   if (handshake_result == -1) {
-    packet_t *result = status_create_packet(ERROR);
+    packet_t *result = status_pack(ERROR);
     packet_send(result, client_socket);
     packet_destroy(result);
     connection_close(client_socket);
     return -1;
   }
 
-  packet_t *result = status_create_packet(OK);
+  packet_t *result = status_pack(OK);
   packet_send(result, client_socket);
   packet_destroy(result);
   return client_socket;

@@ -96,14 +96,16 @@ packet_t *packet_recieve(int socket) {
   if (err_size == -1)
     return NULL;
 
-  packet->buffer->stream = malloc(packet->buffer->size);
-  if (packet->buffer->stream == NULL)
-    return NULL;
+  if (packet->buffer->size > 0) {
+    packet->buffer->stream = malloc(packet->buffer->size);
+    if (packet->buffer->stream == NULL)
+      return NULL;
 
-  int err_stream =
-      recv(socket, packet->buffer->stream, packet->buffer->size, MSG_WAITALL);
-  if (err_stream == -1)
-    return NULL;
+    int err_stream =
+        recv(socket, packet->buffer->stream, packet->buffer->size, MSG_WAITALL);
+    if (err_stream == -1)
+      return NULL;
+  }
   return packet;
 }
 
