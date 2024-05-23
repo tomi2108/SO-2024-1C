@@ -189,7 +189,7 @@ void exec_instruction(instruction_op op, t_list *params,
     break;
   }
   case RESIZE:
-    instruction_resize(params, socket_memoria, pid);
+    instruction_resize(params, instruction_packet, pid);
     break;
   case IO_STDIN_READ:
     instruction_io_stdin(params, instruction_packet, &translate_address, pid);

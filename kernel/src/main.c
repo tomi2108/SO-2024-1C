@@ -661,7 +661,7 @@ void empty_exec() {
   sem_post(&sem_exec_empty);
 }
 
-void end_process(process_t *process) {
+void end_process(process_t *process, int was_new) {
   free_process(process->pid);
   log_info(logger, "Finaliza el proceso %u", process->pid);
 
@@ -669,7 +669,8 @@ void end_process(process_t *process) {
   list_add(finished, process);
   pthread_mutex_unlock(&mutex_finished);
 
-  sem_post(&sem_ready_empty);
+  if (!was_new)
+    sem_post(&sem_ready_empty);
 }
 
 void planificacion_vrr() {
@@ -716,7 +717,7 @@ void planificacion_vrr() {
     log_info(logger, "Se envia el proceso %u a READY por fin de quantum",
              updated_process->pid);
   } else if (exit == FINISH) {
-    end_process(updated_process);
+    end_process(updated_process, 0);
   } else if (exit == BLOCK_IO) {
     block_process_io(name, updated_process);
   } else if (exit == BLOCK_R) {
@@ -757,7 +758,7 @@ void planificacion_rr() {
     log_info(logger, "Se envia el proceso %u a READY por fin de quantum",
              updated_process->pid);
   } else if (exit == FINISH) {
-    end_process(updated_process);
+    end_process(updated_process, 0);
   } else if (exit == BLOCK_IO) {
     block_process_io(name, updated_process);
   } else if (exit == BLOCK_R)
@@ -789,7 +790,7 @@ void planificacion_fifo() {
   empty_exec();
 
   if (exit == FINISH)
-    end_process(updated_process);
+    end_process(updated_process, 0);
   else if (exit == BLOCK_IO)
     block_process_io(name, updated_process);
   else if (exit == BLOCK_R)
@@ -911,10 +912,112 @@ void change_multiprogramming(uint32_t new_value) {
   pthread_mutex_unlock(&mutex_multiprogramacion);
 }
 
+process_t *process_queue_find_and_remove(t_queue *queue, uint32_t pid) {
+  if (queue_is_empty(queue))
+    return NULL;
+
+  process_t *head = queue_pop(queue);
+  uint32_t head_pid = head->pid;
+  if (head_pid == pid) {
+    return head;
+  }
+  queue_push(queue, head);
+
+  process_t *aux_process = queue_peek(queue);
+  uint32_t aux_pid = aux_process->pid;
+  process_t *ret_process = NULL;
+
+  while (aux_pid != head_pid) {
+    aux_process = queue_pop(queue);
+    if (aux_process->pid == pid) {
+      ret_process = aux_process;
+    } else
+      queue_push(queue, aux_process);
+    aux_process = queue_peek(queue);
+    aux_pid = aux_process->pid;
+  }
+  return ret_process;
+}
 void finish_process(uint32_t pid) {
-  // buscar el proceso en base al pid... recorrer las listas supongo .. ?
-  // process_t *process;
-  // end_process(process);
+  bool cmp_process(void *arg) {
+    process_t *p = (process_t *)arg;
+    return p->pid == pid;
+  }
+
+  pthread_mutex_lock(&mutex_finished);
+  process_t *process = list_find(finished, &cmp_process);
+  pthread_mutex_unlock(&mutex_finished);
+  if (process != NULL) {
+    log_warning(logger, "El proceso %u ya se encuentra finalizado", pid);
+    return;
+  }
+
+  pthread_mutex_lock(&mutex_new);
+  process = process_queue_find_and_remove(new_queue, pid);
+  pthread_mutex_unlock(&mutex_new);
+  if (process != NULL) {
+    end_process(process, 1);
+    process_destroy(process);
+    return;
+  }
+  pthread_mutex_unlock(&mutex_new);
+
+  pthread_mutex_lock(&mutex_ready);
+  process = process_queue_find_and_remove(ready_queue, pid);
+  pthread_mutex_unlock(&mutex_ready);
+  if (process != NULL) {
+    end_process(process, 0);
+    process_destroy(process);
+    return;
+  }
+
+  pthread_mutex_lock(&mutex_io_dict);
+  t_list *ios = dictionary_elements(io_dict);
+  pthread_mutex_unlock(&mutex_io_dict);
+
+  t_list_iterator *iterator = list_iterator_create(ios);
+  while (list_iterator_has_next(iterator)) {
+    io *io = list_iterator_next(iterator);
+    pthread_mutex_lock(&mutex_blocked);
+    t_queue *blocked_queue = list_get(blocked, io->queue_index);
+    pthread_mutex_unlock(&mutex_blocked);
+
+    pthread_mutex_lock(&io->mutex_queue);
+    process = process_queue_find_and_remove(blocked_queue, pid);
+    pthread_mutex_unlock(&io->mutex_queue);
+    if (process != NULL) {
+      list_iterator_destroy(iterator);
+      list_destroy(ios);
+      end_process(process, 0);
+      process_destroy(process);
+      return;
+    }
+  }
+  list_iterator_destroy(iterator);
+  list_destroy(ios);
+
+  for (int i = 0; i < num_resources; i++) {
+    pthread_mutex_lock(&mutex_resources_array);
+    resource *r = &resources_array[i];
+    pthread_mutex_unlock(&mutex_resources_array);
+
+    pthread_mutex_lock(&mutex_blocked);
+    t_queue *blocked_queue = list_get(blocked, r->queue_index);
+    pthread_mutex_unlock(&mutex_blocked);
+
+    pthread_mutex_lock(&r->mutex_queue);
+    process = process_queue_find_and_remove(blocked_queue, pid);
+    pthread_mutex_unlock(&r->mutex_queue);
+    if (process != NULL) {
+      end_process(process, 0);
+      process_destroy(process);
+      return;
+    }
+  }
+
+  // buscar en EXEC y eyectar de la CPU
+
+  log_error(logger, "No se encontro un proceso con pid %u", pid);
 }
 
 void print_io_queue(char *name, void *value) {
@@ -1056,8 +1159,10 @@ void exec_script(char *path) {
   char *full_path = file_concat_path(path_instrucciones, path);
 
   FILE *script_file = fopen(full_path, "r");
-  if (script_file == NULL)
-    exit_enoent_error(logger, full_path);
+  if (script_file == NULL) {
+    log_warning(logger, "No se encontro el archivo %s", full_path);
+    return;
+  }
 
   while (!feof(script_file)) {
     char *command = file_read_next_line(script_file, FILE_LINE_MAX_LENGTH);
