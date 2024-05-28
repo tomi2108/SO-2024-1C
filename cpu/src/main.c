@@ -1,10 +1,12 @@
 #include <commons/collections/list.h>
 #include <commons/config.h>
 #include <commons/log.h>
+#include <ctype.h>
 #include <errno.h>
 #include <pthread.h>
 #include <semaphore.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 #include <utils/connection.h>
 #include <utils/exit.h>
@@ -25,6 +27,8 @@ char *puerto_memoria;
 int cantidad_entradas_tlb;
 char *algoritmo_tlb;
 
+int dealloc = 0;
+
 uint32_t pc = 0;
 
 uint8_t ax = 0;
@@ -43,7 +47,19 @@ uint32_t di = 0;
 sem_t sem_check_interrupt;
 sem_t sem_process_interrupt;
 
-int dealloc = 0;
+pthread_mutex_t mutex_dealloc;
+
+uint32_t strtoui32(char *s, int *is_number) {
+  *is_number = 1;
+  for (int i = 0; i < strlen(s); i++) {
+    if (!isdigit(s[i])) {
+      *is_number = 0;
+      break;
+    }
+  }
+
+  return strtol(s, NULL, 10);
+}
 
 uint32_t translate_address(uint32_t logical_addres) { return logical_addres; }
 
@@ -135,11 +151,12 @@ instruction_op decode_instruction(char *instruction, t_list *params) {
       continue;
     }
 
-    uint32_t *number = malloc(sizeof(uint32_t));
-    uint32_t n = strtol(token, NULL, 10);
-    memcpy(number, &n, sizeof(uint32_t));
-
-    if (*number != 0 && errno != EINVAL) {
+    int is_number = 0;
+    errno = 0;
+    uint32_t n = strtoui32(token, &is_number);
+    if (is_number && !errno) {
+      uint32_t *number = malloc(sizeof(uint32_t));
+      memcpy(number, &n, sizeof(uint32_t));
       param *p = malloc(sizeof(param));
       p->type = NUMBER;
       p->value = number;
@@ -158,7 +175,7 @@ instruction_op decode_instruction(char *instruction, t_list *params) {
 }
 
 void exec_instruction(instruction_op op, t_list *params,
-                      packet_t *instruction_packet, int pid) {
+                      packet_t *instruction_packet, uint32_t pid) {
   switch (op) {
   case SET:
     instruction_set(params);
@@ -267,7 +284,6 @@ void unload_registers(process_t process) {
 void response_exec_process(packet_t *req, int client_socket) {
   int interrupted = 0;
   process_t process = process_unpack(req);
-  unload_registers(process);
 
   // fetch
   char *instruction = request_fetch_instruction(process);
@@ -291,15 +307,19 @@ void response_exec_process(packet_t *req, int client_socket) {
 
     // check interrupt
     sem_wait(&sem_process_interrupt);
+    pthread_mutex_lock(&mutex_dealloc);
     if (dealloc == 1)
       interrupted = 1;
+    pthread_mutex_unlock(&mutex_dealloc);
     sem_post(&sem_check_interrupt);
 
     // fetch
+    pthread_mutex_lock(&mutex_dealloc);
     if (dealloc == 0) {
       free(instruction);
       instruction = request_fetch_instruction(process);
     }
+    pthread_mutex_unlock(&mutex_dealloc);
   }
   dealloc = 0;
   load_registers(&process);
@@ -356,7 +376,9 @@ void *server_interrupt(void *args) {
     packet_t *req = packet_recieve(client_socket);
     switch (req->type) {
     case INTERRUPT: {
+      pthread_mutex_lock(&mutex_dealloc);
       dealloc = 1;
+      pthread_mutex_unlock(&mutex_dealloc);
       break;
     }
     default:
@@ -394,6 +416,8 @@ int main(int argc, char *argv[]) {
   sem_init(&sem_check_interrupt, 1, 1);
   sem_init(&sem_process_interrupt, 1, 0);
 
+  pthread_mutex_init(&mutex_dealloc, NULL);
+
   pthread_t servers[2];
   pthread_create(&servers[0], NULL, &server_dispatch, NULL);
   pthread_create(&servers[1], NULL, &server_interrupt, NULL);
@@ -403,6 +427,8 @@ int main(int argc, char *argv[]) {
 
   sem_destroy(&sem_check_interrupt);
   sem_destroy(&sem_process_interrupt);
+  pthread_mutex_destroy(&mutex_dealloc);
+
   log_destroy(logger);
   config_destroy(config);
   return EXIT_SUCCESS;
