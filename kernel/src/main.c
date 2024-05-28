@@ -250,15 +250,25 @@ void response_register_io(packet_t *request, int io_socket) {
 
   while (1) {
     sem_wait(&interfaz->sem_queue_full);
+
+    pthread_mutex_lock(&interfaz->mutex_queue);
+    process_t *head = queue_peek(io_queue);
+    pthread_mutex_unlock(&interfaz->mutex_queue);
+
     packet_t *packet = packet_recieve(interfaz->socket);
+
+    pthread_mutex_lock(&interfaz->mutex_queue);
+    process_t *process = queue_peek(io_queue);
+    pthread_mutex_unlock(&interfaz->mutex_queue);
+
+    if (head->pid != process->pid)
+      continue;
+
     status_code status = status_unpack(packet);
     if (status == OK) {
-      pthread_mutex_lock(&mutex_blocked);
-      t_queue *blocked_queue = list_get(blocked, interfaz->queue_index);
-      pthread_mutex_unlock(&mutex_blocked);
 
       pthread_mutex_lock(&interfaz->mutex_queue);
-      process_t *blocked_process = queue_pop(blocked_queue);
+      process_t *blocked_process = queue_pop(io_queue);
       pthread_mutex_unlock(&interfaz->mutex_queue);
 
       if (strcmp(algoritmo_planificacion, "VRR") == 0) {
@@ -445,7 +455,10 @@ process_t *request_cpu_interrupt(int interrupt, int socket_cpu_dispatch) {
 }
 
 void response_io_gen_sleep(packet_t *res, char *nombre) {
+  pthread_mutex_lock(&mutex_io_dict);
   io *interfaz = dictionary_get(io_dict, nombre);
+  pthread_mutex_unlock(&mutex_io_dict);
+
   packet_t *io_res = packet_create(REGISTER_IO);
 
   uint32_t tiempo_espera = packet_read_uint32(res);
@@ -456,7 +469,9 @@ void response_io_gen_sleep(packet_t *res, char *nombre) {
 }
 
 void response_io_stdin(packet_t *res, char *nombre) {
+  pthread_mutex_lock(&mutex_io_dict);
   io *interfaz = dictionary_get(io_dict, nombre);
+  pthread_mutex_unlock(&mutex_io_dict);
   packet_t *io_res = packet_create(REGISTER_IO);
 
   uint32_t address = packet_read_uint32(res);
@@ -1043,7 +1058,6 @@ void finish_process(uint32_t pid) {
       if (process != NULL) {
         list_iterator_destroy(iterator);
         list_destroy(ios);
-        sem_wait(&io->sem_queue_full);
         end_process(process, 0);
         return;
       }

@@ -284,7 +284,7 @@ void unload_registers(process_t process) {
 void response_exec_process(packet_t *req, int client_socket) {
   int interrupted = 0;
   process_t process = process_unpack(req);
-
+  unload_registers(process);
   // fetch
   char *instruction = request_fetch_instruction(process);
   while (instruction != NULL && !interrupted) {
