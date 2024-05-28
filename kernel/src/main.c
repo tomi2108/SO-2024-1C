@@ -399,7 +399,7 @@ void *unblock_process_resource(void *arg) {
 }
 process_t *request_cpu_interrupt(int interrupt, int socket_cpu_dispatch) {
   pthread_mutex_lock(&mutex_interrupting);
-  if (interrupting == 1) {
+  if (interrupting == 1 && interrupt == 0) {
     pthread_mutex_unlock(&mutex_interrupting);
     return NULL;
   }
@@ -431,11 +431,13 @@ process_t *request_cpu_interrupt(int interrupt, int socket_cpu_dispatch) {
     process_t updated_process = process_unpack(res);
     process_t *p = process_dup(updated_process);
     packet_destroy(res);
+
     pthread_mutex_lock(&mutex_interrupting);
     interrupting = 0;
     pthread_mutex_unlock(&mutex_interrupting);
     return p;
   }
+
   pthread_mutex_lock(&mutex_interrupting);
   interrupting = 0;
   pthread_mutex_unlock(&mutex_interrupting);
