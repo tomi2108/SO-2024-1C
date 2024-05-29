@@ -255,14 +255,20 @@ void response_register_io(packet_t *request, int io_socket) {
     pthread_mutex_lock(&interfaz->mutex_queue);
     process_t *head = queue_peek(io_queue);
     pthread_mutex_unlock(&interfaz->mutex_queue);
+    packet_send(head->io_packet, io_socket);
+    packet_destroy(head->io_packet);
+    head->io_packet = NULL;
 
     packet_t *packet = packet_recieve(interfaz->socket);
 
     pthread_mutex_lock(&interfaz->mutex_queue);
-    process_t *process = queue_peek(io_queue);
+    int size = queue_size(io_queue);
+    process_t *process = NULL;
+    if (size != 0)
+      process = queue_peek(io_queue);
     pthread_mutex_unlock(&interfaz->mutex_queue);
 
-    if (head->pid != process->pid)
+    if (process == NULL || head->pid != process->pid)
       continue;
 
     status_code status = status_unpack(packet);
@@ -441,8 +447,13 @@ process_t *request_cpu_interrupt(int interrupt, int socket_cpu_dispatch) {
     packet_t *res = packet_recieve(socket_cpu_dispatch);
     process_t updated_process = process_unpack(res);
     process_t *p = process_dup(updated_process);
-    packet_destroy(res);
 
+    pthread_mutex_lock(&mutex_exec);
+    if (exec != NULL && exec->io_packet != NULL)
+      p->io_packet = exec->io_packet;
+    pthread_mutex_unlock(&mutex_exec);
+
+    packet_destroy(res);
     pthread_mutex_lock(&mutex_interrupting);
     interrupting = 0;
     pthread_mutex_unlock(&mutex_interrupting);
@@ -456,17 +467,14 @@ process_t *request_cpu_interrupt(int interrupt, int socket_cpu_dispatch) {
 }
 
 void response_io_gen_sleep(packet_t *res, char *nombre) {
-  pthread_mutex_lock(&mutex_io_dict);
-  io *interfaz = dictionary_get(io_dict, nombre);
-  pthread_mutex_unlock(&mutex_io_dict);
-
   packet_t *io_res = packet_create(REGISTER_IO);
 
   uint32_t tiempo_espera = packet_read_uint32(res);
   packet_add_uint32(io_res, tiempo_espera);
 
-  packet_send(io_res, interfaz->socket);
-  packet_destroy(io_res);
+  pthread_mutex_lock(&mutex_exec);
+  exec->io_packet = io_res;
+  pthread_mutex_unlock(&mutex_exec);
 }
 
 void response_io_stdin(packet_t *res, char *nombre) {
@@ -672,6 +680,10 @@ process_t *wait_process_exec(int socket_cpu_dispatch, interrupt *exit,
     packet_destroy(res);
     *exit = FINISH;
     process_t *p = process_dup(updated_process);
+    pthread_mutex_lock(&mutex_exec);
+    if (exec != NULL && exec->io_packet != NULL)
+      p->io_packet = exec->io_packet;
+    pthread_mutex_unlock(&mutex_exec);
     return p;
   }
   default:
@@ -1111,10 +1123,15 @@ void finish_process(uint32_t pid) {
 
       pthread_mutex_lock(&io->mutex_queue);
       process = process_queue_find_and_remove(blocked_queue, pid);
+      process_t *head = queue_peek(blocked_queue);
       pthread_mutex_unlock(&io->mutex_queue);
+
       if (process != NULL) {
         list_iterator_destroy(iterator);
         list_destroy(ios);
+        if (process->pid != head->pid) {
+          sem_wait(&io->sem_queue_full);
+        }
         end_process(process, 0);
         return;
       }

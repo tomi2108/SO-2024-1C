@@ -20,6 +20,7 @@ typedef struct {
   uint32_t quantum;
   uint32_t program_counter;
   process_registers registers;
+  packet_t *io_packet;
 } process_t;
 
 /**

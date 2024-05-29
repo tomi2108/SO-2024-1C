@@ -5,6 +5,7 @@ process_t *process_create(uint32_t pid, char *path, uint32_t quantum) {
   process_t *process = malloc(sizeof(process_t));
   process->pid = pid;
   process->path = path;
+  process->io_packet = NULL;
   process->quantum = quantum;
 
   process->program_counter = 0;
@@ -50,6 +51,7 @@ process_t process_unpack(packet_t *packet) {
   process.path = packet_read_string(packet);
   process.program_counter = packet_read_uint32(packet);
   process.quantum = packet_read_uint32(packet);
+  process.io_packet = NULL;
 
   process.registers.ax = packet_read_uint8(packet);
   process.registers.bx = packet_read_uint8(packet);
@@ -73,6 +75,8 @@ process_t *process_dup(process_t p_to_dup) {
   process->pid = p_to_dup.pid;
   process->path = strdup(p_to_dup.path);
   process->quantum = p_to_dup.quantum;
+  if (p_to_dup.io_packet != NULL)
+    process->io_packet = packet_dup(p_to_dup.io_packet);
 
   process->registers.ax = p_to_dup.registers.ax;
   process->registers.bx = p_to_dup.registers.bx;
