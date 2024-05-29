@@ -86,6 +86,7 @@ pthread_mutex_t mutex_resources_array;
 pthread_mutex_t mutex_multiprogramacion;
 pthread_mutex_t mutex_scheduler;
 pthread_mutex_t mutex_interrupting;
+pthread_mutex_t mutex_quantum_timer;
 
 pthread_mutex_t mutex_new;
 pthread_mutex_t mutex_ready;
@@ -730,6 +731,23 @@ void end_process(process_t *process, int was_new) {
     sem_post(&sem_ready_empty);
 }
 
+void *quantum_timer(void *arg) {
+  int *timer = (int *)arg;
+  while (1) {
+    pthread_mutex_lock(&mutex_quantum_timer);
+    if (*timer <= 0) {
+      pthread_mutex_unlock(&mutex_quantum_timer);
+      break;
+    }
+    pthread_mutex_unlock(&mutex_quantum_timer);
+    usleep(1000);
+    pthread_mutex_lock(&mutex_quantum_timer);
+    (*timer)--;
+    pthread_mutex_unlock(&mutex_quantum_timer);
+  }
+  return NULL;
+}
+
 void planificacion_vrr() {
   int socket_cpu_dispatch =
       connection_create_client(ip_cpu, puerto_cpu_dispatch);
@@ -750,25 +768,43 @@ void planificacion_vrr() {
   char *name = NULL;
 
   pthread_mutex_lock(&mutex_exec);
-  int quantum_left = exec->quantum == 0 ? initial_quantum : exec->quantum;
+  int quantum_left = exec->quantum <= 0 ? initial_quantum : exec->quantum;
   pthread_mutex_unlock(&mutex_exec);
 
-  while (updated_process == NULL && quantum_left > 0) {
+  pthread_t th_timer;
+  int *timer = malloc(sizeof(int));
+  *timer = quantum_left;
+
+  pthread_create(&th_timer, NULL, &quantum_timer, timer);
+  while (updated_process == NULL) {
+    pthread_mutex_lock(&mutex_quantum_timer);
+    if (*timer <= 0) {
+      pthread_mutex_unlock(&mutex_quantum_timer);
+      break;
+    }
+    pthread_mutex_unlock(&mutex_quantum_timer);
+
     updated_process = wait_process_exec(socket_cpu_dispatch, &exit, &name);
-    quantum_left--;
 
-    pthread_mutex_lock(&mutex_exec);
-    exec->quantum = quantum_left;
-    pthread_mutex_unlock(&mutex_exec);
-
-    if (quantum_left > 0 && updated_process == NULL)
+    pthread_mutex_lock(&mutex_quantum_timer);
+    if (*timer > 0 && updated_process == NULL) {
+      pthread_mutex_unlock(&mutex_quantum_timer);
       request_cpu_interrupt(0, socket_cpu_dispatch);
+    } else {
+      pthread_mutex_unlock(&mutex_quantum_timer);
+    }
   }
+  int end_timer = *timer;
+
+  pthread_mutex_lock(&mutex_exec);
+  exec->quantum = end_timer;
+  pthread_mutex_unlock(&mutex_exec);
+  pthread_cancel(th_timer);
 
   block_if_scheduler_off();
   empty_exec();
 
-  if (quantum_left == 0) {
+  if (end_timer <= 0) {
     updated_process = request_cpu_interrupt(1, socket_cpu_dispatch);
     send_to_ready(updated_process);
     log_info(logger, "Se envia el proceso %u a READY por fin de quantum",
@@ -780,6 +816,8 @@ void planificacion_vrr() {
   } else if (exit == BLOCK_R) {
     block_process_resource(name, updated_process);
   }
+  pthread_join(th_timer, NULL);
+  free(timer);
   free(name);
 
   connection_close(socket_cpu_dispatch);
@@ -798,18 +836,36 @@ void planificacion_rr() {
   char *name = NULL;
   int quantum_left = initial_quantum;
 
-  while (updated_process == NULL && quantum_left > 0) {
-    updated_process = wait_process_exec(socket_cpu_dispatch, &exit, &name);
-    quantum_left--;
+  pthread_t th_timer;
+  int *timer = malloc(sizeof(int));
+  *timer = quantum_left;
 
-    if (quantum_left > 0 && updated_process == NULL)
+  pthread_create(&th_timer, NULL, &quantum_timer, timer);
+  while (updated_process == NULL) {
+    pthread_mutex_lock(&mutex_quantum_timer);
+    if (*timer <= 0) {
+      pthread_mutex_unlock(&mutex_quantum_timer);
+      break;
+    }
+    pthread_mutex_unlock(&mutex_quantum_timer);
+
+    updated_process = wait_process_exec(socket_cpu_dispatch, &exit, &name);
+
+    pthread_mutex_lock(&mutex_quantum_timer);
+    if (*timer > 0 && updated_process == NULL) {
+      pthread_mutex_unlock(&mutex_quantum_timer);
       request_cpu_interrupt(0, socket_cpu_dispatch);
+    } else {
+      pthread_mutex_unlock(&mutex_quantum_timer);
+    }
   }
+  int end_timer = *timer;
+  pthread_cancel(th_timer);
 
   block_if_scheduler_off();
   empty_exec();
 
-  if (quantum_left == 0) {
+  if (end_timer <= 0) {
     updated_process = request_cpu_interrupt(1, socket_cpu_dispatch);
     send_to_ready(updated_process);
     log_info(logger, "Se envia el proceso %u a READY por fin de quantum",
@@ -820,8 +876,10 @@ void planificacion_rr() {
     block_process_io(name, updated_process);
   } else if (exit == BLOCK_R)
     block_process_resource(name, updated_process);
-  free(name);
 
+  pthread_join(th_timer, NULL);
+  free(timer);
+  free(name);
   connection_close(socket_cpu_dispatch);
 }
 
@@ -1333,6 +1391,7 @@ int main(int argc, char *argv[]) {
   pthread_mutex_init(&mutex_io_dict, NULL);
   pthread_mutex_init(&mutex_scheduler, NULL);
   pthread_mutex_init(&mutex_interrupting, NULL);
+  pthread_mutex_init(&mutex_quantum_timer, NULL);
   if (strcmp(algoritmo_planificacion, "VRR") == 0)
     pthread_mutex_init(&mutex_vrr_aux, NULL);
 
@@ -1375,6 +1434,7 @@ int main(int argc, char *argv[]) {
   pthread_mutex_destroy(&mutex_io_dict);
   pthread_mutex_destroy(&mutex_multiprogramacion);
   pthread_mutex_destroy(&mutex_interrupting);
+  pthread_mutex_destroy(&mutex_quantum_timer);
   if (strcmp(algoritmo_planificacion, "VRR") == 0)
     pthread_mutex_destroy(&mutex_vrr_aux);
 
