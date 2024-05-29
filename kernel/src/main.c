@@ -804,7 +804,7 @@ void planificacion_vrr() {
   block_if_scheduler_off();
   empty_exec();
 
-  if (end_timer <= 0) {
+  if (end_timer <= 0 && updated_process == NULL) {
     updated_process = request_cpu_interrupt(1, socket_cpu_dispatch);
     send_to_ready(updated_process);
     log_info(logger, "Se envia el proceso %u a READY por fin de quantum",
@@ -835,7 +835,6 @@ void planificacion_rr() {
   interrupt exit = 0;
   char *name = NULL;
   int quantum_left = initial_quantum;
-
   pthread_t th_timer;
   int *timer = malloc(sizeof(int));
   *timer = quantum_left;
@@ -865,7 +864,7 @@ void planificacion_rr() {
   block_if_scheduler_off();
   empty_exec();
 
-  if (end_timer <= 0) {
+  if (end_timer <= 0 && updated_process == NULL) {
     updated_process = request_cpu_interrupt(1, socket_cpu_dispatch);
     send_to_ready(updated_process);
     log_info(logger, "Se envia el proceso %u a READY por fin de quantum",
