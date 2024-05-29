@@ -38,6 +38,7 @@ typedef struct {
   pthread_mutex_t mutex_queue;
 } io;
 t_dictionary *io_dict;
+t_dictionary *resource_dict;
 
 typedef struct {
   char *name;
@@ -82,6 +83,7 @@ t_list *finished;
 t_queue *vrr_aux_queue;
 
 pthread_mutex_t mutex_io_dict;
+pthread_mutex_t mutex_resource_dict;
 pthread_mutex_t mutex_resources_array;
 pthread_mutex_t mutex_multiprogramacion;
 pthread_mutex_t mutex_scheduler;
@@ -295,7 +297,7 @@ void response_register_io(packet_t *request, int io_socket) {
   pthread_mutex_unlock(&mutex_blocked);
 
   pthread_mutex_lock(&mutex_io_dict);
-  dictionary_remove(io_dict, nombre);
+  dictionary_remove_and_destroy(io_dict, nombre, &free_io);
   pthread_mutex_unlock(&mutex_io_dict);
 
   free(nombre);
@@ -318,7 +320,27 @@ void *atender_cliente(void *args) {
   return EXIT_SUCCESS;
 }
 
+void free_process_resources(uint32_t pid) {
+  int key_length = snprintf(NULL, 0, "%d", pid);
+  char *key = malloc(key_length + 1);
+  snprintf(key, key_length + 1, "%d", pid);
+
+  pthread_mutex_lock(&mutex_resource_dict);
+  int *taken_resources = dictionary_get(resource_dict, key);
+  pthread_mutex_unlock(&mutex_resource_dict);
+
+  for (int i = 0; i < num_resources; i++) {
+    int taken_instances = taken_resources[i];
+    pthread_mutex_lock(&mutex_resources_array);
+    resources_array[i].instances += taken_instances;
+    pthread_mutex_unlock(&mutex_resources_array);
+  }
+  dictionary_remove_and_destroy(resource_dict, key, &free);
+  free(key);
+}
+
 void free_process(uint32_t pid) {
+  free_process_resources(pid);
   int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
   packet_t *free_req = packet_create(FREE_PROCESS);
   packet_add_uint32(free_req, pid);
@@ -335,6 +357,18 @@ void init_process(char *path) {
     pthread_mutex_lock(&mutex_new);
     queue_push(new_queue, new_process);
     pthread_mutex_unlock(&mutex_new);
+
+    int key_length = snprintf(NULL, 0, "%d", new_process->pid);
+    char *key = malloc(key_length + 1);
+    snprintf(key, key_length + 1, "%d", new_process->pid);
+
+    int *initial_resources_instances = malloc(num_resources * sizeof(int));
+    memset(initial_resources_instances, 0, num_resources * sizeof(int));
+
+    pthread_mutex_lock(&mutex_resource_dict);
+    dictionary_put(resource_dict, key, initial_resources_instances);
+    pthread_mutex_unlock(&mutex_resource_dict);
+
     sem_post(&sem_new_full);
 
     log_info(logger, "Se crea el proceso %d en NEW", new_process->pid);
@@ -350,8 +384,7 @@ int get_resource_id(char *resource) {
     pthread_mutex_lock(&mutex_resources_array);
     if (strcmp(resources_array[i].name, resource) == 0) {
       pthread_mutex_unlock(&mutex_resources_array);
-      resource_i = i;
-      break;
+      return i;
     }
     pthread_mutex_unlock(&mutex_resources_array);
   }
@@ -557,20 +590,35 @@ process_t *response_wait(packet_t *res, int socket_cpu_dispatch,
                          interrupt *exit, char **name) {
   char *resource_name = packet_read_string(res);
   int resource_i = get_resource_id(resource_name);
+
   pthread_mutex_lock(&mutex_resources_array);
   resource *r = &resources_array[resource_i];
-  pthread_mutex_unlock(&mutex_resources_array);
 
   if (resource_i != -1) {
+    pthread_mutex_lock(&mutex_exec);
+    int key_length = snprintf(NULL, 0, "%d", exec->pid);
+    char *key = malloc(key_length + 1);
+    snprintf(key, key_length + 1, "%d", exec->pid);
+    pthread_mutex_unlock(&mutex_exec);
+
+    pthread_mutex_lock(&mutex_resource_dict);
+    int *taken_resources = dictionary_get(resource_dict, key);
+    taken_resources[resource_i]++;
+    pthread_mutex_unlock(&mutex_resource_dict);
+
+    free(key);
     r->instances--;
     if (r->instances < 0) {
       *exit = BLOCK_R;
       *name = strdup(r->name);
+      pthread_mutex_unlock(&mutex_resources_array);
       return request_cpu_interrupt(1, socket_cpu_dispatch);
     }
+    pthread_mutex_unlock(&mutex_resources_array);
     return NULL;
   }
   *exit = FINISH;
+  pthread_mutex_unlock(&mutex_resources_array);
   return request_cpu_interrupt(1, socket_cpu_dispatch);
 }
 
@@ -581,7 +629,6 @@ process_t *response_signal(packet_t *res, interrupt *exit,
 
   pthread_mutex_lock(&mutex_resources_array);
   resource *r = &resources_array[resource_i];
-  pthread_mutex_unlock(&mutex_resources_array);
 
   if (resource_i != -1) {
     if (r->instances < 0) {
@@ -589,9 +636,28 @@ process_t *response_signal(packet_t *res, interrupt *exit,
       pthread_create(&th, NULL, &unblock_process_resource, resource_name);
       pthread_detach(th);
     }
+    pthread_mutex_lock(&mutex_exec);
+    int key_length = snprintf(NULL, 0, "%d", exec->pid);
+    char *key = malloc(key_length + 1);
+    snprintf(key, key_length + 1, "%d", exec->pid);
+    pthread_mutex_unlock(&mutex_exec);
+
+    pthread_mutex_lock(&mutex_resource_dict);
+    int *taken_resources = dictionary_get(resource_dict, key);
+    pthread_mutex_unlock(&mutex_resource_dict);
+
+    if (taken_resources[resource_i] == 0) {
+      pthread_mutex_unlock(&mutex_resources_array);
+      return NULL;
+    }
+
+    taken_resources[resource_i]--;
+    free(key);
     r->instances++;
+    pthread_mutex_unlock(&mutex_resources_array);
     return NULL;
   }
+  pthread_mutex_unlock(&mutex_resources_array);
   *exit = FINISH;
   return request_cpu_interrupt(1, socket_cpu_dispatch);
 }
@@ -1243,6 +1309,17 @@ void list_processes(void) {
   list_iterator_destroy(finished_iterator);
 };
 
+void print_resources() {
+  pthread_mutex_lock(&mutex_resources_array);
+  printf("%d: ", num_resources);
+  printf("[");
+  for (int i = 0; i < num_resources; i++) {
+    printf(" %d,", resources_array[i].instances);
+  }
+  printf(" ]\n");
+  pthread_mutex_unlock(&mutex_resources_array);
+}
+
 void exec_command(command_op op, param p) {
   switch (op) {
   case EXEC_SCRIPT:
@@ -1265,6 +1342,9 @@ void exec_command(command_op op, param p) {
     break;
   case FINISH_PROCESS:
     finish_process(*(uint32_t *)p.value);
+    break;
+  case PRINT_RESOURCES:
+    print_resources();
     break;
   default:
     break;
@@ -1361,6 +1441,9 @@ int main(int argc, char *argv[]) {
     exit_enoent_error(logger, argv[1]);
 
   puerto_escucha = config_get_string_value(config, "PUERTO_ESCUCHA");
+  int server_socket = connection_create_server(puerto_escucha);
+  if (server_socket == -1)
+    exit_server_connection_error(logger);
 
   ip_memoria = config_get_string_value(config, "IP_MEMORIA");
   puerto_memoria = config_get_string_value(config, "PUERTO_MEMORIA");
@@ -1394,6 +1477,7 @@ int main(int argc, char *argv[]) {
     vrr_aux_queue = queue_create();
 
   io_dict = dictionary_create();
+  resource_dict = dictionary_create();
 
   pthread_t console_thread;
   pthread_t scheduler_thread;
@@ -1405,6 +1489,8 @@ int main(int argc, char *argv[]) {
   pthread_mutex_init(&mutex_finished, NULL);
   pthread_mutex_init(&mutex_multiprogramacion, NULL);
   pthread_mutex_init(&mutex_io_dict, NULL);
+  pthread_mutex_init(&mutex_resource_dict, NULL);
+  pthread_mutex_init(&mutex_resources_array, NULL);
   pthread_mutex_init(&mutex_scheduler, NULL);
   pthread_mutex_init(&mutex_interrupting, NULL);
   pthread_mutex_init(&mutex_quantum_timer, NULL);
@@ -1419,13 +1505,10 @@ int main(int argc, char *argv[]) {
   sem_init(&sem_scheduler, 1, 0);
 
   initialize_resources(recursos, instancias_recursos);
-  int server_socket = connection_create_server(puerto_escucha);
-  if (server_socket == -1)
-    exit_server_connection_error(logger);
-  log_info(logger, "Servidor levantado en el puerto %s", puerto_escucha);
 
+  pthread_create(&scheduler_thread, NULL, &scheduler, NULL);
   pthread_create(&console_thread, NULL, &consola_interactiva, NULL);
-  pthread_create(&console_thread, NULL, &scheduler, NULL);
+  log_info(logger, "Servidor levantado en el puerto %s", puerto_escucha);
   while (1) {
     int client_socket = connection_accept_client(server_socket);
     if (client_socket == -1)
@@ -1448,6 +1531,8 @@ int main(int argc, char *argv[]) {
   pthread_mutex_destroy(&mutex_blocked);
   pthread_mutex_destroy(&mutex_finished);
   pthread_mutex_destroy(&mutex_io_dict);
+  pthread_mutex_destroy(&mutex_resources_array);
+  pthread_mutex_destroy(&mutex_resource_dict);
   pthread_mutex_destroy(&mutex_multiprogramacion);
   pthread_mutex_destroy(&mutex_interrupting);
   pthread_mutex_destroy(&mutex_quantum_timer);
@@ -1461,8 +1546,9 @@ int main(int argc, char *argv[]) {
   sem_destroy(&sem_exec_empty);
   sem_destroy(&sem_scheduler);
 
-  free_resources(resources_array);
   dictionary_destroy_and_destroy_elements(io_dict, &free_io);
+  dictionary_destroy(resource_dict);
+  free_resources(resources_array);
   queue_destroy_and_destroy_elements(new_queue, (void *)&process_destroy);
   queue_destroy_and_destroy_elements(ready_queue, (void *)&process_destroy);
   list_destroy_and_destroy_elements(blocked, (void *)&queue_destroy);

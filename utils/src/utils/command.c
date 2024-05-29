@@ -15,5 +15,7 @@ command_op command_op_from_string(char *op) {
     return CHANGE_MULTIPROGRAMMING;
   if (strcmp(op, "PROCESO_ESTADO") == 0)
     return PRINT_PROCESSES;
+  if (strcmp(op, "PRINT_RESOURCES") == 0)
+    return PRINT_RESOURCES;
   return UNKNOWN_COMMAND;
 }
