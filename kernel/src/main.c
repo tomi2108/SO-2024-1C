@@ -99,6 +99,8 @@ sem_t sem_exec_empty;
 
 sem_t sem_scheduler;
 
+void end_process(process_t *process, int was_new);
+
 void initialize_resources(char **recursos, char **instancias_recursos) {
   num_resources = 0;
   while (recursos[num_resources] != NULL)
@@ -604,6 +606,11 @@ process_t *wait_process_exec(int socket_cpu_dispatch, interrupt *exit,
           response_resize(res, socket_cpu_dispatch, exit, name);
       packet_destroy(res);
       return exit_process;
+    }
+    case EXIT: {
+      process_t process = process_unpack(res);
+      end_process(&process, 0);
+      request_cpu_interrupt(1, socket_cpu_dispatch);
     }
     default:
       return NULL;

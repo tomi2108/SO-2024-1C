@@ -6,6 +6,7 @@
 #include <semaphore.h>
 #include <stdint.h>
 #include <string.h>
+#include <math.h>
 #include <utils/connection.h>
 #include <utils/exit.h>
 #include <utils/instruction.h>
@@ -15,6 +16,7 @@
 
 t_log *logger;
 t_config *config;
+t_list *tlb;
 
 char *puerto_dispatch;
 char *puerto_interrupt;
@@ -24,6 +26,8 @@ char *puerto_memoria;
 
 int cantidad_entradas_tlb;
 char *algoritmo_tlb;
+
+int tamanio_pagina;
 
 uint32_t pc = 0;
 
@@ -45,7 +49,123 @@ sem_t sem_process_interrupt;
 
 int dealloc = 0;
 
-uint32_t translate_address(uint32_t logical_addres) { return logical_addres; }
+typedef struct t_tlb{
+  uint32_t pid;
+  int page_number;
+  int num_marco;
+}t_tlb;
+
+t_tlb *search_tlb(uint32_t pid, int page_number) {
+    for (int i = 0; i < list_size(tlb); i++) {
+        t_tlb *entry = list_get(tlb, i);
+        if (entry->pid == pid && entry->page_number == page_number) {
+            return entry;
+        }
+    }
+    return NULL;
+}
+
+
+int nro_frame_tlb(uint32_t pid, int page_number, uint32_t *frame_number) {
+    t_tlb *entry = search_tlb(pid, page_number);
+    if (!entry) {
+        log_info(logger, "PID: %d - TLB MISS - Pagina: %d", pid, page_number);
+        return ERROR;
+    } else {
+        *frame_number = entry->num_marco;
+        log_info(logger, "PID: %d - TLB HIT - Pagina: %d", pid, page_number);
+        return 1;
+    }
+}
+
+int solicitar_marco_de_memoria(uint32_t pid, int page_number) {
+    int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
+    packet_t *req = packet_create(FETCH_FRAME_NUMBER);
+    packet_add_uint32(req, pid);
+    packet_add_uint8(req, page_number);
+    packet_send(req, socket_memoria);
+
+    packet_t *res = packet_recieve(socket_memoria);
+    if (res == NULL) {
+        log_error(logger, "Error al recibir la respuesta de la memoria");
+        connection_close(socket_memoria);
+        return ERROR;
+    }
+
+    uint32_t frame_number;
+    switch (res->type) {
+        case FETCH_FRAME_NUMBER:
+            frame_number = packet_read_uint32(res);
+            break;
+        default:
+            log_error(logger, "Tipo de respuesta inesperado");
+            frame_number = ERROR;
+            break;
+    }
+
+    packet_destroy(res);
+    connection_close(socket_memoria);
+    return frame_number;
+}
+
+void actualizar_tlb(uint32_t pid, uint32_t frame_number, int page_number) {
+    t_tlb *new_entry = malloc(sizeof(t_tlb));
+    new_entry->pid = pid;
+    new_entry->page_number = page_number;
+    new_entry->num_marco = frame_number;
+
+    if (list_size(tlb) >= cantidad_entradas_tlb) {
+        // Implementar política de reemplazo
+        if (strcmp(algoritmo_tlb, "FIFO") == 0) {
+            list_remove_and_destroy_element(tlb, 0, free); // Elimina la entrada más antigua
+        } else if (strcmp(algoritmo_tlb, "LRU") == 0) {
+            // La política LRU implica mover la entrada más reciente al final, así que aquí
+            // solo eliminamos el primer elemento como en FIFO.
+            list_remove_and_destroy_element(tlb, 0, free);
+        }
+    }
+
+    list_add(tlb, new_entry);
+}
+
+int numero_pagina(uint32_t logical_address) {
+    if (tamanio_pagina == 0) {
+        log_error(logger, "El tamaño de página es 0, no se puede realizar la división.");
+        return ERROR;
+    }
+    return logical_address / tamanio_pagina;
+}
+
+
+int calcular_desplazamiento(uint32_t logical_addres, int numero_pagina){
+  return logical_addres - numero_pagina * tamanio_pagina;
+}
+
+uint32_t translate_address(uint32_t logical_address, uint32_t pid) {
+    int page_number = numero_pagina(logical_address);
+    int offset = calcular_desplazamiento(logical_address, page_number);
+    uint32_t frame_number;
+
+    int result = nro_frame_tlb(pid, page_number, &frame_number);
+
+    if (result == ERROR) {
+        // TLB Miss
+        frame_number = solicitar_marco_de_memoria(pid, page_number);
+
+        if (frame_number == ERROR) {
+            log_error(logger, "Error al consultar el Kernel para la página %d del PID %d", page_number, pid);
+            return ERROR;
+        }
+
+        // Actualizar la TLB con el nuevo marco obtenido
+        actualizar_tlb(pid, frame_number, page_number);
+    }
+
+    // Dirección física = (marco * tamaño de página) + desplazamiento
+    uint32_t physical_address = (frame_number * tamanio_pagina) + offset;
+
+    return physical_address;
+}
 
 char *request_fetch_instruction(process_t process) {
   int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
@@ -158,7 +278,8 @@ instruction_op decode_instruction(char *instruction, t_list *params) {
 }
 
 void exec_instruction(instruction_op op, t_list *params,
-                      packet_t *instruction_packet, int pid) {
+                      packet_t *instruction_packet, process_t process) {
+  uint32_t pid = process.pid;
   switch (op) {
   case SET:
     instruction_set(params);
@@ -218,6 +339,8 @@ void exec_instruction(instruction_op op, t_list *params,
   case SIGNAL:
     instruction_signal(params, instruction_packet, logger, pid);
     break;
+  case EXIT:
+    instruction_exit(instruction_packet, process);
   default:
     break;
   }
@@ -282,7 +405,7 @@ void response_exec_process(packet_t *req, int client_socket) {
     packet_t *packet = packet_create(INSTRUCTION);
     packet_add(packet, &operation, sizeof(instruction_op));
 
-    exec_instruction(operation, params, packet, process.pid);
+    exec_instruction(operation, params, packet, process);
     log_info(logger, "PID: %u - Ejecutando: %s", process.pid, instruction);
     list_destroy_and_destroy_elements(params, &free_param);
 
@@ -393,6 +516,8 @@ int main(int argc, char *argv[]) {
 
   sem_init(&sem_check_interrupt, 1, 1);
   sem_init(&sem_process_interrupt, 1, 0);
+
+  tlb = list_create();
 
   pthread_t servers[2];
   pthread_create(&servers[0], NULL, &server_dispatch, NULL);

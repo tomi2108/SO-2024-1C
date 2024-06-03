@@ -3,6 +3,7 @@
 
 #include "packet.h"
 #include "status.h"
+#include "process.h"
 #include <commons/collections/list.h>
 #include <commons/log.h>
 #include <stdint.h>
@@ -118,7 +119,7 @@ void instruction_io_gen_sleep(t_list *params, packet_t *instruction_packet);
  * @brief  MOV_IN instruction implementation
  */
 void instruction_mov_in(t_list *params, int client_socket, t_log *logger,
-                        uint32_t (*translate_address)(uint32_t), uint32_t pid);
+                        uint32_t (*translate_address)(uint32_t, uint32_t), uint32_t pid);
 
 /**
  * @fn     instruction_mov_out
@@ -130,7 +131,7 @@ void instruction_mov_in(t_list *params, int client_socket, t_log *logger,
  * @brief  MOV_OUT instruction implementation
  */
 void instruction_mov_out(t_list *params, int client_socket, t_log *logger,
-                         uint32_t (*translate_address)(uint32_t), uint32_t pid);
+                         uint32_t (*translate_address)(uint32_t, uint32_t), uint32_t pid);
 
 /**
  * @fn     instruction_resize
@@ -160,7 +161,7 @@ void instruction_copy_string(t_list *params, uint32_t *si, uint32_t *di);
  * @brief  IO_STDIN_READ instruction implementation
  */
 void instruction_io_stdin(t_list *params, packet_t *instruction_packet,
-                          uint32_t (*translate_addres)(uint32_t), uint32_t pid);
+                          uint32_t (*translate_addres)(uint32_t, uint32_t), uint32_t pid);
 
 /**
  * @fn     instruction_io_stdout
@@ -171,7 +172,7 @@ void instruction_io_stdin(t_list *params, packet_t *instruction_packet,
  * @brief  IO_STDOUT_WRITE instruction implementation
  */
 void instruction_io_stdout(t_list *params, packet_t *instruction_packet,
-                           uint32_t (*translate_addres)(uint32_t),
+                           uint32_t (*translate_addres)(uint32_t, uint32_t),
                            uint32_t pid);
 
 /**
@@ -201,5 +202,7 @@ void instruction_wait(t_list *params, packet_t *instruction_packet,
 
 void instruction_signal(t_list *params, packet_t *instruction_packet,
                         t_log *logger, uint32_t pid);
+
+void instruction_exit(packet_t *instruction_packet, process_t process);
 
 #endif
