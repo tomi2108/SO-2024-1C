@@ -50,7 +50,6 @@ void interfaz_generica(packet_t *res, int socket_kernel) {
 }
 
 void interfaz_stdout(packet_t *res, int socket_kernel) {
-  usleep(tiempo_unidad_trabajo_ms * 1000);
   uint32_t address = packet_read_uint32(res);
   uint32_t pid = packet_read_uint32(res);
   uint32_t size = packet_read_uint32(res);
