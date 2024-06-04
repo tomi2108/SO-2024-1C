@@ -651,7 +651,10 @@ process_t *response_signal(packet_t *res, interrupt *exit,
       return NULL;
     }
 
+    pthread_mutex_lock(&mutex_resource_dict);
     taken_resources[resource_i]--;
+    pthread_mutex_unlock(&mutex_resource_dict);
+
     free(key);
     r->instances++;
     pthread_mutex_unlock(&mutex_resources_array);
@@ -736,6 +739,10 @@ process_t *wait_process_exec(int socket_cpu_dispatch, interrupt *exit,
           response_resize(res, socket_cpu_dispatch, exit, name);
       packet_destroy(res);
       return exit_process;
+    }
+    case EXIT: {
+      *exit = FINISH;
+      return request_cpu_interrupt(1, socket_cpu_dispatch);
     }
     default:
       return NULL;

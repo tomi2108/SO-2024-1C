@@ -24,10 +24,12 @@ char *puerto_interrupt;
 char *ip_memoria;
 char *puerto_memoria;
 
+t_list *tlb;
 int cantidad_entradas_tlb;
 char *algoritmo_tlb;
 
 int dealloc = 0;
+int tamanio_pagina = 0;
 
 uint32_t pc = 0;
 
@@ -61,7 +63,127 @@ uint32_t strtoui32(char *s, int *is_number) {
   return strtol(s, NULL, 10);
 }
 
-uint32_t translate_address(uint32_t logical_addres) { return logical_addres; }
+typedef struct t_tlb {
+  uint32_t pid;
+  int page_number;
+  int num_marco;
+} t_tlb;
+
+t_tlb *search_tlb(uint32_t pid, int page_number, int *index) {
+  for (int i = 0; i < list_size(tlb); i++) {
+    t_tlb *entry = list_get(tlb, i);
+    if (entry->pid == pid && entry->page_number == page_number) {
+      *index = i;
+      return entry;
+    }
+  }
+  return NULL;
+}
+
+status_code nro_frame_tlb(uint32_t pid, int page_number,
+                          uint32_t *frame_number) {
+  int index = 0;
+  t_tlb *entry = search_tlb(pid, page_number, &index);
+  if (!entry) {
+    log_info(logger, "PID: %d - TLB MISS - Pagina: %d", pid, page_number);
+    return ERROR;
+  } else {
+    *frame_number = entry->num_marco;
+    log_info(logger, "PID: %d - TLB HIT - Pagina: %d", pid, page_number);
+    if (strcmp(algoritmo_tlb, "LRU") == 0) {
+      t_tlb *entry = list_remove(tlb, index);
+      list_add(tlb, entry);
+    }
+    return OK;
+  }
+}
+
+status_code solicitar_marco_de_memoria(uint32_t pid, int page_number,
+                                       uint32_t *frame_number) {
+  int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
+  packet_t *req = packet_create(FETCH_FRAME_NUMBER);
+  packet_add_uint32(req, pid);
+  packet_add_uint32(req, page_number);
+  packet_send(req, socket_memoria);
+  packet_destroy(req);
+
+  packet_t *res = packet_recieve(socket_memoria);
+  connection_close(socket_memoria);
+
+  switch (res->type) {
+  case FETCH_FRAME_NUMBER:
+    *frame_number = packet_read_uint32(res);
+    break;
+  default:
+    return ERROR;
+    break;
+  }
+  packet_destroy(res);
+  return OK;
+}
+
+void actualizar_tlb(uint32_t pid, uint32_t frame_number, int page_number) {
+  t_tlb *new_entry = malloc(sizeof(t_tlb));
+  new_entry->pid = pid;
+  new_entry->page_number = page_number;
+  new_entry->num_marco = frame_number;
+
+  if (list_size(tlb) >= cantidad_entradas_tlb) {
+    // Implementar política de reemplazo
+    if (strcmp(algoritmo_tlb, "FIFO") == 0) {
+      list_remove_and_destroy_element(tlb, 0,
+                                      &free); // Elimina la entrada más antigua
+    } else if (strcmp(algoritmo_tlb, "LRU") == 0) {
+      // La política LRU implica mover la entrada más reciente al final, así que
+      // aquí solo eliminamos el primer elemento como en FIFO.
+      list_remove_and_destroy_element(tlb, 0, &free);
+    }
+  }
+
+  list_add(tlb, new_entry);
+}
+
+int numero_pagina(uint32_t logical_address) {
+  if (tamanio_pagina == 0) {
+    log_error(logger,
+              "El tamaño de página es 0, no se puede realizar la división.");
+    exit_input_error(logger);
+  }
+  return logical_address / tamanio_pagina;
+}
+
+int calcular_desplazamiento(uint32_t logical_addres, int numero_pagina) {
+  return logical_addres - numero_pagina * tamanio_pagina;
+}
+
+uint32_t translate_address(uint32_t logical_address, uint32_t pid) {
+  int page_number = numero_pagina(logical_address);
+  int offset = calcular_desplazamiento(logical_address, page_number);
+
+  uint32_t frame_number = 0;
+  status_code tlb_search_result =
+      nro_frame_tlb(pid, page_number, &frame_number);
+
+  if (tlb_search_result == ERROR) {
+    // TLB Miss
+    status_code request_result =
+        solicitar_marco_de_memoria(pid, page_number, &frame_number);
+    if (request_result == ERROR) {
+      log_error(logger,
+                "Error al consultar la Memoria para la página %d del PID %d",
+                page_number, pid);
+      exit_input_error(logger);
+    }
+
+    // Actualizar la TLB con el nuevo marco obtenido
+    actualizar_tlb(pid, frame_number, page_number);
+  }
+
+  // Dirección física = (marco * tamaño de página) + desplazamiento
+  uint32_t physical_address = (frame_number * tamanio_pagina) + offset;
+
+  return physical_address;
+}
 
 char *request_fetch_instruction(process_t process) {
   int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
@@ -235,6 +357,8 @@ void exec_instruction(instruction_op op, t_list *params,
   case SIGNAL:
     instruction_signal(params, instruction_packet, logger, pid);
     break;
+  case EXIT:
+    instruction_exit();
   default:
     break;
   }
@@ -418,6 +542,8 @@ int main(int argc, char *argv[]) {
 
   pthread_mutex_init(&mutex_dealloc, NULL);
 
+  tlb = list_create();
+
   pthread_t servers[2];
   pthread_create(&servers[0], NULL, &server_dispatch, NULL);
   pthread_create(&servers[1], NULL, &server_interrupt, NULL);
@@ -428,6 +554,7 @@ int main(int argc, char *argv[]) {
   sem_destroy(&sem_check_interrupt);
   sem_destroy(&sem_process_interrupt);
   pthread_mutex_destroy(&mutex_dealloc);
+  list_destroy_and_destroy_elements(tlb, &free);
 
   log_destroy(logger);
   config_destroy(config);

@@ -32,6 +32,8 @@ char *instruction_op_to_string(instruction_op op) {
     return "WAIT";
   case SIGNAL:
     return "SIGNAL";
+  case EXIT:
+    return "EXIT";
   default:
     return "UNKNOW_INSTRUCTION";
   };
@@ -66,6 +68,8 @@ instruction_op instruction_op_from_string(char *op) {
     return WAIT;
   if (strcmp(op, "SIGNAL") == 0)
     return SIGNAL;
+  if (strcmp(op, "EXIT") == 0)
+    return EXIT;
   return UNKNOWN_INSTRUCTION;
 }
 
@@ -77,7 +81,7 @@ int instruction_is_io(instruction_op op) {
 }
 
 int instruction_is_syscall(instruction_op op) {
-  if (instruction_is_io(op) || op == WAIT || op == SIGNAL)
+  if (instruction_is_io(op) || op == WAIT || op == SIGNAL || op == EXIT)
     return 1;
   return 0;
 }
@@ -122,12 +126,13 @@ void instruction_io_gen_sleep(t_list *params, packet_t *instruction_packet) {
 }
 
 void instruction_mov_in(t_list *params, int client_socket, t_log *logger,
-                        uint32_t (*translate_address)(uint32_t), uint32_t pid) {
+                        uint32_t (*translate_address)(uint32_t, uint32_t),
+                        uint32_t pid) {
   param *first_param = list_get(params, 0);
   param *second_param = (param *)list_get(params, 1);
 
   uint32_t logical_address = *(uint32_t *)second_param->value;
-  uint32_t physical_address = translate_address(logical_address);
+  uint32_t physical_address = translate_address(logical_address, pid);
 
   packet_t *req = packet_create(READ_DIR);
   packet_add_uint32(req, physical_address);
@@ -151,14 +156,14 @@ void instruction_mov_in(t_list *params, int client_socket, t_log *logger,
 }
 
 void instruction_mov_out(t_list *params, int client_socket, t_log *logger,
-                         uint32_t (*translate_address)(uint32_t),
+                         uint32_t (*translate_address)(uint32_t, uint32_t),
                          uint32_t pid) {
 
   param *first_param = list_get(params, 0);
   param *second_param = list_get(params, 1);
 
   uint32_t logical_address = *(uint32_t *)first_param->value;
-  uint32_t physical_address = translate_address(logical_address);
+  uint32_t physical_address = translate_address(logical_address, pid);
 
   uint32_t write_value = *(uint32_t *)second_param->value;
   packet_t *req = packet_create(WRITE_DIR);
@@ -189,7 +194,7 @@ void instruction_copy_string(t_list *params, uint32_t *si, uint32_t *di) {
 }
 
 void instruction_io_stdin(t_list *params, packet_t *instruction_packet,
-                          uint32_t (*translate_addres)(uint32_t),
+                          uint32_t (*translate_addres)(uint32_t, uint32_t),
                           uint32_t pid) {
 
   param *first_param = list_get(params, 0);
@@ -199,13 +204,13 @@ void instruction_io_stdin(t_list *params, packet_t *instruction_packet,
   packet_add_string(instruction_packet, (char *)first_param->value);
 
   packet_add_uint32(instruction_packet,
-                    translate_addres(*(uint32_t *)second_param->value));
+                    translate_addres(*(uint32_t *)second_param->value, pid));
   packet_add_uint32(instruction_packet, pid);
   packet_add_uint32(instruction_packet, *(uint32_t *)third_param->value);
 }
 
 void instruction_io_stdout(t_list *params, packet_t *instruction_packet,
-                           uint32_t (*translate_addres)(uint32_t),
+                           uint32_t (*translate_addres)(uint32_t, uint32_t),
                            uint32_t pid) {
 
   param *first_param = list_get(params, 0);
@@ -215,7 +220,7 @@ void instruction_io_stdout(t_list *params, packet_t *instruction_packet,
   packet_add_string(instruction_packet, (char *)first_param->value);
 
   packet_add_uint32(instruction_packet,
-                    translate_addres(*(uint32_t *)second_param->value));
+                    translate_addres(*(uint32_t *)second_param->value, pid));
   packet_add_uint32(instruction_packet, pid);
   packet_add_uint32(instruction_packet, *(uint32_t *)third_param->value);
 }
@@ -257,3 +262,5 @@ void instruction_signal(t_list *params, packet_t *instruction_packet,
   packet_add_string(instruction_packet, resource);
   packet_add_uint32(instruction_packet, pid);
 }
+
+void instruction_exit() {}
