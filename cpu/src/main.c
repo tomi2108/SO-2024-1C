@@ -91,8 +91,8 @@ status_code nro_frame_tlb(uint32_t pid, int page_number,
     *frame_number = entry->num_marco;
     log_info(logger, "PID: %d - TLB HIT - Pagina: %d", pid, page_number);
     if (strcmp(algoritmo_tlb, "LRU") == 0) {
-      t_tlb *entry = list_remove(tlb, index);
-      list_add(tlb, entry);
+      t_tlb *removed_entry = list_remove(tlb, index);
+      list_add(tlb, removed_entry);
     }
     return OK;
   }
