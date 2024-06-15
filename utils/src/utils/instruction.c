@@ -189,9 +189,53 @@ void instruction_resize(t_list *params, packet_t *instruction_packet,
   packet_add_uint32(instruction_packet, *(uint32_t *)first_param->value);
 }
 
-void instruction_copy_string(t_list *params, uint32_t *si, uint32_t *di) {
-  param *first_param = list_get(params, 0);
+void instruction_copy_string(t_list *params, int client_socket, t_log *logger,
+                             uint32_t (*translate_address)(uint32_t, uint32_t),
+                             uint32_t si, uint32_t di, uint32_t pid) {
+    param *first_param = list_get(params, 0);
+    uint32_t size = *(uint32_t *)first_param->value;
+
+    // Obtener dirección física de si
+    uint32_t physical_address_si = translate_address(si, pid);
+
+    // Enviar solicitud de lectura a si
+    packet_t *req = packet_create(READ_DIR);
+    packet_add_uint32(req, physical_address_si);
+    packet_add_uint32(req, pid);
+    packet_add_uint32(req, size);
+    packet_send(req, client_socket);
+    log_info(logger,
+             "PID: %u - Accion: LECTURA - Direccion fisica: %u - Tamaño: %u",
+             pid, physical_address_si, size);
+    packet_destroy(req);
+
+    // Recibir respuesta de lectura
+    packet_t *read_response = packet_recieve(client_socket);
+    uint8_t *buffer = malloc(size);
+    for (uint32_t i = 0; i < size; i++) {
+        buffer[i] = packet_read_uint8(read_response);
+    }
+    packet_destroy(read_response);
+
+    // Obtener dirección física de di
+    uint32_t physical_address_di = translate_address(di, pid);
+
+    // Enviar solicitud de escritura a di
+    packet_t *res = packet_create(WRITE_DIR);
+    packet_add_uint32(res, physical_address_di);
+    packet_add_uint32(res, pid);
+    packet_add_uint32(res, size);
+    for (uint32_t i = 0; i < size; i++) {
+        packet_add_uint8(res, buffer[i]);
+    }
+    packet_send(res, client_socket);
+    packet_destroy(res);
+    log_info(logger, "PID: %u - Accion: ESCRITURA - Direccion fisica: %u",
+             pid, physical_address_di);
+
+    free(buffer);
 }
+
 
 void instruction_io_stdin(t_list *params, packet_t *instruction_packet,
                           uint32_t (*translate_addres)(uint32_t, uint32_t),

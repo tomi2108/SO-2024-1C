@@ -17,6 +17,8 @@ process_t *process_create(uint32_t pid, char *path, uint32_t quantum) {
   process->registers.ebx = 0;
   process->registers.ecx = 0;
   process->registers.edx = 0;
+  process->registers.si = 0;
+  process->registers.di = 0;
   return process;
 }
 
@@ -41,6 +43,8 @@ packet_t *process_pack(process_t process) {
   packet_add_uint32(packet, process.registers.ebx);
   packet_add_uint32(packet, process.registers.ecx);
   packet_add_uint32(packet, process.registers.edx);
+  packet_add_uint32(packet, process.registers.di);
+  packet_add_uint32(packet, process.registers.si);
   return packet;
 }
 
@@ -61,6 +65,8 @@ process_t process_unpack(packet_t *packet) {
   process.registers.ebx = packet_read_uint32(packet);
   process.registers.ecx = packet_read_uint32(packet);
   process.registers.edx = packet_read_uint32(packet);
+  process.registers.si = packet_read_uint32(packet);
+  process.registers.di = packet_read_uint32(packet);
   return process;
 }
 
@@ -86,5 +92,8 @@ process_t *process_dup(process_t p_to_dup) {
   process->registers.ebx = p_to_dup.registers.ebx;
   process->registers.ecx = p_to_dup.registers.ecx;
   process->registers.edx = p_to_dup.registers.edx;
+  process->registers.si = p_to_dup.registers.si;
+  process->registers.di = p_to_dup.registers.di;
+
   return process;
 }

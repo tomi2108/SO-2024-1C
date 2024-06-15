@@ -395,6 +395,10 @@ void exec_instruction(instruction_op op, t_list *params,
     break;
   case EXIT:
     instruction_exit();
+    break;
+  case COPY_STRING:
+    int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
+    instruction_copy_string(params, socket_memoria, logger, &translate_address, si, di, pid);
   default:
     break;
   }
@@ -415,6 +419,8 @@ void reset_registers() {
   ebx = 0;
   ecx = 0;
   edx = 0;
+  si = 0;
+  di = 0;
 }
 
 void load_registers(process_t *process) {
@@ -427,6 +433,8 @@ void load_registers(process_t *process) {
   process->registers.ebx = ebx;
   process->registers.ecx = ecx;
   process->registers.edx = edx;
+  process -> registers.si = si;
+  process -> registers.di = di;
 }
 
 void unload_registers(process_t process) {
@@ -439,6 +447,8 @@ void unload_registers(process_t process) {
   ebx = process.registers.ebx;
   ecx = process.registers.ecx;
   edx = process.registers.edx;
+  si = process.registers.si;
+  di = process.registers.di;
 }
 
 void response_exec_process(packet_t *req, int client_socket) {
