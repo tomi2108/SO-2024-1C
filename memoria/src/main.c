@@ -31,12 +31,24 @@ char *path_instrucciones;
 void *user_memory;
 
 t_list *page_table;
+pthread_mutex_t page_table_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 typedef struct {
   uint32_t pid;
   int is_free;
   uint32_t page;
 } frame;
+
+void print_page_table() {
+  pthread_mutex_lock(&page_table_mutex);
+  log_info(logger, "Contenido de la tabla de páginas:");
+  for (int i = 0; i < list_size(page_table); i++) {
+    frame *f = list_get(page_table, i);
+    log_info(logger, "Frame %d - PID: %u, Página: %u, is_free: %d", i, f->pid,
+             f->page, f->is_free);
+  }
+  pthread_mutex_unlock(&page_table_mutex);
+}
 
 int ceil_div(uint32_t num, int denom) { return (num + denom - 1) / denom; }
 
@@ -55,39 +67,46 @@ char *fetch_instruction(uint32_t program_counter, char *instruction_path) {
 }
 
 int get_next_free_frame(t_list *table) {
+  pthread_mutex_lock(&page_table_mutex);
   t_list_iterator *iterator = list_iterator_create(table);
 
-  frame *next_frame = list_iterator_next(iterator);
-  while (next_frame->is_free == 0 || !list_iterator_has_next(iterator))
+  frame *next_frame = NULL;
+  while (list_iterator_has_next(iterator)) {
     next_frame = list_iterator_next(iterator);
-
-  if (next_frame->is_free == 0) {
-    list_iterator_destroy(iterator);
-    return -1;
+    if (next_frame->is_free) {
+      int index = list_iterator_index(iterator);
+      list_iterator_destroy(iterator);
+      pthread_mutex_unlock(&page_table_mutex);
+      return index;
+    }
   }
 
-  int i = list_iterator_index(iterator);
   list_iterator_destroy(iterator);
-  return i;
+  pthread_mutex_unlock(&page_table_mutex);
+  return -1;
 }
 
 int get_frame_from_page(t_list *table, uint32_t page, uint32_t pid) {
+  pthread_mutex_lock(&page_table_mutex);
+
+  int frame_number = -1;
   t_list_iterator *iterator = list_iterator_create(table);
-  frame *next_frame = list_iterator_next(iterator);
 
-  while (next_frame->is_free == 1 || next_frame->page != page ||
-         next_frame->pid != pid || !list_iterator_has_next(iterator))
-    next_frame = list_iterator_next(iterator);
+  while (list_iterator_has_next(iterator)) {
+    frame *next_frame = list_iterator_next(iterator);
 
-  if (next_frame->is_free == 1 || next_frame->page != page ||
-      next_frame->pid != pid) {
-    list_iterator_destroy(iterator);
-    return -1;
+    if (next_frame != NULL && !next_frame->is_free &&
+        next_frame->page == page && next_frame->pid == pid) {
+      frame_number = list_iterator_index(iterator);
+      log_debug(logger, "Frame encontrado: PID: %u, Página: %u",
+                next_frame->pid, next_frame->page);
+      break;
+    }
   }
-
-  int i = list_iterator_index(iterator);
   list_iterator_destroy(iterator);
-  return i;
+  pthread_mutex_unlock(&page_table_mutex);
+
+  return frame_number;
 }
 
 int get_next_pid_page(t_list *table, uint32_t pid) {
@@ -131,19 +150,29 @@ uint32_t get_process_size(uint32_t pid) {
   return i * tam_pagina;
 }
 
-int get_pages_count(uint32_t pid) { return get_process_size(pid) / tam_pagina; }
+int get_pages_count(uint32_t pid) {
+  pthread_mutex_lock(&page_table_mutex);
+  int count = 0;
+  count = get_process_size(pid);
+  pthread_mutex_unlock(&page_table_mutex);
+  return count / tam_pagina;
+}
 
 void alloc_page(int frame_index, uint32_t pid) {
+  pthread_mutex_lock(&page_table_mutex);
   frame *frame = list_get(page_table, frame_index);
   int pages = get_pages_count(pid);
   frame->is_free = 0;
   frame->pid = pid;
   frame->page = pages + 1;
+  pthread_mutex_unlock(&page_table_mutex);
 }
 
 void dealloc_page(int frame_index) {
+  pthread_mutex_lock(&page_table_mutex);
   frame *frame = list_get(page_table, frame_index);
   frame->is_free = 1;
+  pthread_mutex_unlock(&page_table_mutex);
 }
 
 bool sort_by_page(void *a, void *b) {
@@ -155,6 +184,13 @@ bool sort_by_page(void *a, void *b) {
 void expand_process(uint32_t pid, int cant_paginas) {
   for (int i = 0; i < cant_paginas; i++) {
     int frame = get_next_free_frame(page_table);
+    if (frame == -1) {
+      log_error(
+          logger,
+          "No hay frames libres disponibles para expandir el proceso PID: %u",
+          pid);
+      return;
+    }
     alloc_page(frame, pid);
   }
 }
@@ -188,6 +224,7 @@ void response_resize_process(packet_t *req, int client_socket) {
       packet_destroy(res);
       return;
     }
+
     expand_process(pid, cant_paginas);
   } else if (size < process_size) {
     uint32_t size_to_reduce = process_size - size;
@@ -255,6 +292,9 @@ void response_fetch_frame_number(packet_t *req, int client_socket) {
 
   uint32_t frame_number = get_frame_from_page(page_table, page_number, pid);
 
+  if (frame_number == -1)
+    log_error(logger, "El proceso %d no tiene pagina %d", pid, page_number);
+
   packet_t *res = packet_create(FETCH_FRAME_NUMBER);
   packet_add_uint32(res, frame_number);
   packet_send(res, client_socket);
@@ -269,6 +309,14 @@ void response_read_dir(packet_t *request, int client_socket) {
   log_info(logger,
            "PID: %u - Accion: LECTURA - Direccion fisica: %u - Tamanio %u", pid,
            address, size);
+
+  if (address + size > tam_memoria) {
+    log_error(logger, "Acceso de memoria fuera de límites.");
+    packet_t *res = status_pack(ERROR);
+    packet_send(res, client_socket);
+    packet_destroy(res);
+    return;
+  }
 
   packet_t *res = packet_create(MEMORY_CONTENT);
   for (int i = 0; i < size; i++) {
@@ -290,7 +338,7 @@ void response_write_dir(packet_t *request, int client_socket) {
            "PID: %u - Accion: ESCRITURA - Direccion fisica: %u - Tamanio %u",
            pid, address, size);
 
-  for (int i = 0; i < size; i++) {
+  for (uint32_t i = 0; i < size; i++) {
     uint8_t to_write = packet_read_uint8(request);
     uint8_t *aux = user_memory;
     aux += address + i;
@@ -324,6 +372,13 @@ void *atender_cliente(void *args) {
   case FETCH_FRAME_NUMBER:
     response_fetch_frame_number(req, client_socket);
     break;
+  case TAMANIO_PAGINA_REQUEST: {
+    packet_t *res = packet_create(TAMANIO_PAGINA_RESPONSE);
+    packet_add_uint8(res, tam_pagina);
+    packet_send(res, client_socket);
+    packet_destroy(res);
+    break;
+  }
   default:
     break;
   }
@@ -357,17 +412,32 @@ int main(int argc, char *argv[]) {
   log_info(logger, "Servidor levantado en el puerto %s", puerto_escucha);
 
   user_memory = malloc(tam_memoria);
+  if (user_memory == NULL) {
+    log_error(logger, "Error al asignar memoria para user_memory");
+    exit(EXIT_FAILURE);
+  }
   memset(user_memory, 0, tam_memoria);
 
   page_table = list_create();
+  if (page_table == NULL) {
+    log_error(logger, "Error al crear la page_table");
+    free(user_memory);
+    exit(EXIT_FAILURE);
+  }
 
   for (int i = 0; i < frame_count; i++) {
     frame *frame_struct = malloc(sizeof(frame));
+    if (frame_struct == NULL) {
+      log_error(logger, "Error al asignar memoria para el frame %d", i);
+      exit(EXIT_FAILURE);
+    }
     frame_struct->pid = 0;
     frame_struct->is_free = 1;
     frame_struct->page = 0;
     list_add(page_table, frame_struct);
   }
+
+  // print_page_table();
 
   while (1) {
     int client_socket = connection_accept_client(server_socket);

@@ -45,3 +45,9 @@ void exit_config_field_error(t_log *logger, char *field) {
       EXIT_CONFIG_FIELD_ERROR, field);
   exit(EXIT_CONFIG_FIELD_ERROR);
 }
+
+void exit_input_error(t_log *logger) {
+  log_error(logger, "EXIT CODE %d Ocurrio un error de entrada",
+            EXIT_INPUT_ERROR);
+  exit(EXIT_INPUT_ERROR);
+}

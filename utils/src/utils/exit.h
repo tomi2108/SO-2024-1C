@@ -12,6 +12,7 @@
 #define EXIT_MALFORMATTED_ARGUMENTS 5
 #define EXIT_ENOENT 6
 #define EXIT_CONFIG_FIELD_ERROR 7
+#define EXIT_INPUT_ERROR 8
 
 /**
  * @fn    exit_success
@@ -70,4 +71,10 @@ void exit_enoent_error(t_log *logger, char *path);
  */
 void exit_config_field_error(t_log *logger, char *field);
 
+/**
+ * @fn    exit_input_error
+ * @param logger Logger to log the error message
+ * @brief Exits the thread with input error code
+ */
+void exit_input_error(t_log *logger);
 #endif
