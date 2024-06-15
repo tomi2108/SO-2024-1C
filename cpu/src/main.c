@@ -149,7 +149,7 @@ status_code solicitar_tamanio_pagina() {
   tamanio_pagina = packet_read_uint8(res);
   packet_destroy(res);
 
-  log_info(logger, "Tamaño de página recibido: %d bytes", tamanio_pagina);
+  //log_info(logger, "Tamaño de página recibido: %d bytes", tamanio_pagina);
   return OK;
 }
 
