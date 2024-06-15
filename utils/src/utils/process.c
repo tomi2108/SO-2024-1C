@@ -43,8 +43,8 @@ packet_t *process_pack(process_t process) {
   packet_add_uint32(packet, process.registers.ebx);
   packet_add_uint32(packet, process.registers.ecx);
   packet_add_uint32(packet, process.registers.edx);
-  packet_add_uint32(packet, process.registers.di);
   packet_add_uint32(packet, process.registers.si);
+  packet_add_uint32(packet, process.registers.di);
   return packet;
 }
 

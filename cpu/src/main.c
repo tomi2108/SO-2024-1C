@@ -1,6 +1,7 @@
 #include <commons/collections/list.h>
 #include <commons/config.h>
 #include <commons/log.h>
+#include <cstdint>
 #include <ctype.h>
 #include <errno.h>
 #include <pthread.h>
@@ -29,14 +30,14 @@ int cantidad_entradas_tlb;
 char *algoritmo_tlb;
 
 int dealloc = 0;
-int tamanio_pagina;
+int tamanio_pagina = 0;
 
-uint32_t pc = 4;
+uint32_t pc = 0;
 
-uint8_t ax = 1;
-uint8_t bx = 1;
-uint8_t cx = 1;
-uint8_t dx = 1;
+uint8_t ax = 0;
+uint8_t bx = 0;
+uint8_t cx = 0;
+uint8_t dx = 0;
 
 uint32_t eax = 0;
 uint32_t ebx = 0;
@@ -98,13 +99,10 @@ status_code nro_frame_tlb(uint32_t pid, int page_number,
   }
 }
 
-status_code solicitar_marco_de_memoria(uint32_t pid, int page_number,
-                                       uint32_t *frame_number) {
+uint32_t solicitar_marco_de_memoria(uint32_t pid, int page_number) {
   int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
-  if (socket_memoria == -1) {
-    log_error(logger, "Error al conectarse con memoria");
-    return ERROR;
-  }
+  if (socket_memoria == -1)
+    exit_client_connection_error(logger);
 
   packet_t *req = packet_create(FETCH_FRAME_NUMBER);
   packet_add_uint32(req, pid);
@@ -115,23 +113,15 @@ status_code solicitar_marco_de_memoria(uint32_t pid, int page_number,
   packet_t *res = packet_recieve(socket_memoria);
   connection_close(socket_memoria);
 
-  if (res == NULL) {
-        log_error(logger, "Error al recibir respuesta de memoria");
-        return ERROR;
-    }
-
-    *frame_number = packet_read_uint32(res);
-    log_info(logger, "PID: %d - OBTENER MARCO - Página: %d - Marco: %d", pid, page_number, *frame_number);
-    packet_destroy(res);
-    return OK;
+  uint32_t frame_number = packet_read_uint32(res);
+  packet_destroy(res);
+  return frame_number;
 }
 
-status_code solicitar_tamanio_pagina() {
+void solicitar_tamanio_pagina() {
   int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
-  if (socket_memoria == -1) {
-    log_error(logger, "Error al conectarse con memoria");
-    return ERROR;
-  }
+  if (socket_memoria == -1)
+    exit_client_connection_error(logger);
 
   packet_t *req = packet_create(TAMANIO_PAGINA_REQUEST);
   packet_send(req, socket_memoria);
@@ -140,17 +130,8 @@ status_code solicitar_tamanio_pagina() {
   packet_t *res = packet_recieve(socket_memoria);
   connection_close(socket_memoria);
 
-  if (res == NULL || res->type != TAMANIO_PAGINA_RESPONSE) {
-    log_error(logger, "Error al recibir respuesta de memoria para tamaño de página");
-    if (res != NULL) packet_destroy(res);
-    return ERROR;
-  }
-
   tamanio_pagina = packet_read_uint8(res);
   packet_destroy(res);
-
-  //log_info(logger, "Tamaño de página recibido: %d bytes", tamanio_pagina);
-  return OK;
 }
 
 void actualizar_tlb(uint32_t pid, uint32_t frame_number, int page_number) {
@@ -162,7 +143,8 @@ void actualizar_tlb(uint32_t pid, uint32_t frame_number, int page_number) {
   if (list_size(tlb) >= cantidad_entradas_tlb) {
     // Implementar política de reemplazo
     if (strcmp(algoritmo_tlb, "FIFO") == 0) {
-      list_remove_and_destroy_element(tlb, 0, &free); // Elimina la entrada más antigua
+      list_remove_and_destroy_element(tlb, 0,
+                                      &free); // Elimina la entrada más antigua
     } else if (strcmp(algoritmo_tlb, "LRU") == 0) {
       // La política LRU implica mover la entrada más reciente al final, así que
       // aquí solo eliminamos el primer elemento como en FIFO.
@@ -187,7 +169,8 @@ int calcular_desplazamiento(uint32_t logical_addres, int numero_pagina) {
 }
 
 uint32_t translate_address(uint32_t logical_address, uint32_t pid) {
-  log_info(logger, "Traduciendo dirección lógica %u para el PID %d", logical_address, pid);
+  log_info(logger, "Traduciendo dirección lógica %u para el PID %d",
+           logical_address, pid);
   int page_number = numero_pagina(logical_address);
 
   if (page_number < 0) {
@@ -203,12 +186,7 @@ uint32_t translate_address(uint32_t logical_address, uint32_t pid) {
 
   if (tlb_search_result == ERROR) {
     // TLB Miss
-    status_code request_result =
-        solicitar_marco_de_memoria(pid, page_number, &frame_number);
-    if (request_result == ERROR) {
-      log_error(logger,"Error al consultar la Memoria para la página %d del PID %d",page_number, pid);
-      exit_input_error(logger);
-    }
+    frame_number = solicitar_marco_de_memoria(pid, page_number, &frame_number);
 
     // Actualizar la TLB con el nuevo marco obtenido
     actualizar_tlb(pid, frame_number, page_number);
@@ -217,7 +195,7 @@ uint32_t translate_address(uint32_t logical_address, uint32_t pid) {
   // Dirección física = (marco * tamaño de página) + desplazamiento
   uint32_t physical_address = (frame_number * tamanio_pagina) + offset;
   log_info(logger, "Dirección fisica %u", physical_address);
-  
+
   return physical_address;
 }
 
@@ -398,7 +376,8 @@ void exec_instruction(instruction_op op, t_list *params,
     break;
   case COPY_STRING:
     int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
-    instruction_copy_string(params, socket_memoria, logger, &translate_address, si, di, pid);
+    instruction_copy_string(params, socket_memoria, logger, &translate_address,
+                            si, di, pid);
   default:
     break;
   }
@@ -433,8 +412,8 @@ void load_registers(process_t *process) {
   process->registers.ebx = ebx;
   process->registers.ecx = ecx;
   process->registers.edx = edx;
-  process -> registers.si = si;
-  process -> registers.di = di;
+  process->registers.si = si;
+  process->registers.di = di;
 }
 
 void unload_registers(process_t process) {
@@ -583,10 +562,7 @@ int main(int argc, char *argv[]) {
   cantidad_entradas_tlb = config_get_int_value(config, "CANTIDAD_ENTRADAS_TLB");
   algoritmo_tlb = config_get_string_value(config, "ALGORITMO_TLB");
 
-  if (solicitar_tamanio_pagina() == ERROR) {
-    log_error(logger, "No se pudo obtener el tamaño de página. Finalizando...");
-    exit(EXIT_FAILURE);
-  }
+  solicitar_tamanio_pagina();
 
   sem_init(&sem_check_interrupt, 1, 1);
   sem_init(&sem_process_interrupt, 1, 0);
