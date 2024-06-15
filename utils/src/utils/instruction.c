@@ -169,16 +169,16 @@ void instruction_mov_out(t_list *params, int client_socket, t_log *logger,
   packet_t *req = packet_create(WRITE_DIR);
   packet_add_uint32(req, physical_address);
   packet_add_uint32(req, pid);
-  packet_add_uint32(req, 4);
+  packet_add_uint32(req, sizeof(uint32_t));
 
-  for (int i = 0; i < 4; i++)
-    packet_add_uint8(req, *((uint8_t *)second_param->value + i));
+  for (int i = 0; i < sizeof(uint32_t); i++)
+    packet_add_uint8(req, *((uint8_t *)(&write_value) + i));
 
-  log_info(logger,
-           "PID: %u - Accion: ESCRITURA - Direccion fisica: %u - Valor: %u",
-           pid, physical_address, write_value);
   packet_send(req, client_socket);
   packet_destroy(req);
+
+  log_info(logger, "PID: %u - Accion: ESCRITURA - Direccion fisica: %u - Valor: %u",
+           pid, physical_address, write_value);
 }
 
 void instruction_resize(t_list *params, packet_t *instruction_packet,

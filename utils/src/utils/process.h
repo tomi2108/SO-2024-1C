@@ -4,10 +4,12 @@
 #include "packet.h"
 
 typedef struct {
+  //Registros 1 byte
   uint8_t ax;
   uint8_t bx;
   uint8_t cx;
   uint8_t dx;
+  //Registro 4 byte
   uint32_t eax;
   uint32_t ebx;
   uint32_t ecx;
