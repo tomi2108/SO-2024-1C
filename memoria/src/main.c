@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 #include <unistd.h>
 #include <utils/connection.h>
@@ -359,34 +360,12 @@ void response_write_dir(packet_t *request, int client_socket) {
            "PID: %u - Accion: ESCRITURA - Direccion fisica: %u - Tamanio %u",
            pid, address, size);
 
-  if (address + size > tam_memoria) {
-    log_error(logger, "Acceso de memoria fuera de límites.");
-    packet_t *res = status_pack(ERROR);
-    packet_send(res, client_socket);
-    packet_destroy(res);
-    return;
-  }
-
-  uint8_t *data = malloc(size);
-  if (data == NULL) {
-    log_error(logger, "No se pudo asignar memoria para la escritura.");
-    packet_t *res = status_pack(ERROR);
-    packet_send(res, client_socket);
-    packet_destroy(res);
-    return;
-  }
-
   for (uint32_t i = 0; i < size; i++) {
-    data[i] = packet_read_uint8(request);
+    uint8_t to_write = packet_read_uint8(request);
+    uint8_t *aux = user_memory;
+    aux += address + i;
+    memset(aux, to_write, 1);
   }
-
-  memcpy(user_memory + address, data, size);
-
-  free(data);
-
-  packet_t *res = status_pack(OK);
-  packet_send(res, client_socket);
-  packet_destroy(res);
 }
 
 void *atender_cliente(void *args) {
