@@ -158,41 +158,20 @@ int get_pages_count(uint32_t pid) {
   return count / tam_pagina;
 }
 
-void alloc_page(int frame_index, uint32_t pid, uint32_t page) {
+void alloc_page(int frame_index, uint32_t pid) {
   pthread_mutex_lock(&page_table_mutex);
-
-  if (frame_index < 0 || frame_index >= list_size(page_table)) {
-    pthread_mutex_unlock(&page_table_mutex);
-    log_error(logger, "Index de frmae inválido: %d", frame_index);
-    return;
-  }
-
   frame *frame = list_get(page_table, frame_index);
+  int pages = get_pages_count(pid);
   frame->is_free = 0;
   frame->pid = pid;
-  frame->page = page;
-  log_info(logger, "Asignando frame: %d a PID: %u, Página: %u", frame_index,
-           pid, page);
+  frame->page = pages + 1;
   pthread_mutex_unlock(&page_table_mutex);
 }
 
 void dealloc_page(int frame_index) {
   pthread_mutex_lock(&page_table_mutex);
-  if (frame_index < 0 || frame_index >= list_size(page_table)) {
-    pthread_mutex_unlock(&page_table_mutex);
-    log_error(logger, "Índice de frame inválido: %d", frame_index);
-    return;
-  }
   frame *frame = list_get(page_table, frame_index);
-  if (frame->is_free) {
-    log_warning(logger,
-                "El frame %d ya está libre, no se puede liberar nuevamente.",
-                frame_index);
-  } else {
-    frame->is_free = 1;
-    log_info(logger, "Liberando frame: %d, PID: %u, Página: %u", frame_index,
-             frame->pid, frame->page);
-  }
+  frame->is_free = 1;
   pthread_mutex_unlock(&page_table_mutex);
 }
 
@@ -212,8 +191,7 @@ void expand_process(uint32_t pid, int cant_paginas) {
           pid);
       return;
     }
-    int next_page = get_pages_count(pid);
-    alloc_page(frame, pid, next_page);
+    alloc_page(frame, pid);
   }
 }
 
@@ -394,12 +372,13 @@ void *atender_cliente(void *args) {
   case FETCH_FRAME_NUMBER:
     response_fetch_frame_number(req, client_socket);
     break;
-  case TAMANIO_PAGINA_REQUEST:
+  case TAMANIO_PAGINA_REQUEST: {
     packet_t *res = packet_create(TAMANIO_PAGINA_RESPONSE);
     packet_add_uint8(res, tam_pagina);
     packet_send(res, client_socket);
     packet_destroy(res);
     break;
+  }
   default:
     break;
   }
@@ -455,7 +434,6 @@ int main(int argc, char *argv[]) {
     frame_struct->pid = 0;
     frame_struct->is_free = 1;
     frame_struct->page = 0;
-    frame_struct->frame_number = i;
     list_add(page_table, frame_struct);
   }
 
