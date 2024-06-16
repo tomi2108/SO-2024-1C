@@ -1327,6 +1327,21 @@ void print_resources() {
   pthread_mutex_unlock(&mutex_resources_array);
 }
 
+void print_dir(uint32_t dir) {
+  int socket = connection_create_client(ip_memoria, puerto_memoria);
+  packet_t *req = packet_create(READ_DIR);
+  packet_add_uint32(req, dir);
+  packet_add_uint32(req, 1);
+  packet_add_uint32(req, 1);
+
+  packet_send(req, socket);
+  packet_destroy(req);
+
+  packet_t *res = packet_recieve(socket);
+  uint8_t byte = packet_read_uint8(res);
+  log_debug(logger, "Address: %u , Content: %u", dir, byte);
+}
+
 void exec_command(command_op op, param p) {
   switch (op) {
   case EXEC_SCRIPT:
@@ -1352,6 +1367,9 @@ void exec_command(command_op op, param p) {
     break;
   case PRINT_RESOURCES:
     print_resources();
+    break;
+  case PRINT_DIR:
+    print_dir(*(uint32_t *)p.value);
     break;
   default:
     break;

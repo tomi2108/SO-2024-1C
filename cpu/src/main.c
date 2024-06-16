@@ -1,7 +1,6 @@
 #include <commons/collections/list.h>
 #include <commons/config.h>
 #include <commons/log.h>
-#include <cstdint>
 #include <ctype.h>
 #include <errno.h>
 #include <pthread.h>
@@ -169,34 +168,34 @@ int calcular_desplazamiento(uint32_t logical_addres, int numero_pagina) {
 }
 
 uint32_t translate_address(uint32_t logical_address, uint32_t pid) {
-  log_info(logger, "Traduciendo dirección lógica %u para el PID %d",
-           logical_address, pid);
-  int page_number = numero_pagina(logical_address);
-
-  if (page_number < 0) {
-    log_error(logger, "Número de página inválido: %d", page_number);
-    exit_input_error(logger);
-  }
-
-  int offset = calcular_desplazamiento(logical_address, page_number);
-
-  uint32_t frame_number;
-  status_code tlb_search_result =
-      nro_frame_tlb(pid, page_number, &frame_number);
-
-  if (tlb_search_result == ERROR) {
-    // TLB Miss
-    frame_number = solicitar_marco_de_memoria(pid, page_number, &frame_number);
-
-    // Actualizar la TLB con el nuevo marco obtenido
-    actualizar_tlb(pid, frame_number, page_number);
-  }
-
-  // Dirección física = (marco * tamaño de página) + desplazamiento
-  uint32_t physical_address = (frame_number * tamanio_pagina) + offset;
-  log_info(logger, "Dirección fisica %u", physical_address);
-
-  return physical_address;
+  // log_info(logger, "Traduciendo dirección lógica %u para el PID %d",
+  //          logical_address, pid);
+  // int page_number = numero_pagina(logical_address);
+  //
+  // if (page_number < 0) {
+  //   log_error(logger, "Número de página inválido: %d", page_number);
+  //   exit_input_error(logger);
+  // }
+  //
+  // int offset = calcular_desplazamiento(logical_address, page_number);
+  //
+  // uint32_t frame_number;
+  // status_code tlb_search_result =
+  //     nro_frame_tlb(pid, page_number, &frame_number);
+  //
+  // if (tlb_search_result == ERROR) {
+  //   // TLB Miss
+  //   frame_number = solicitar_marco_de_memoria(pid, page_number);
+  //
+  //   // Actualizar la TLB con el nuevo marco obtenido
+  //   actualizar_tlb(pid, frame_number, page_number);
+  // }
+  //
+  // // Dirección física = (marco * tamaño de página) + desplazamiento
+  // uint32_t physical_address = (frame_number * tamanio_pagina) + offset;
+  // log_info(logger, "Dirección fisica %u", physical_address);
+  //
+  return logical_address;
 }
 
 char *request_fetch_instruction(process_t process) {
@@ -253,6 +252,10 @@ uint32_t *is_extended_register(char *token) {
     return &ecx;
   if (strcmp(token, "EDX") == 0)
     return &edx;
+  if (strcmp(token, "SI") == 0)
+    return &si;
+  if (strcmp(token, "DI") == 0)
+    return &di;
   return NULL;
 }
 
@@ -374,10 +377,14 @@ void exec_instruction(instruction_op op, t_list *params,
   case EXIT:
     instruction_exit();
     break;
-  case COPY_STRING:
-    int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
-    instruction_copy_string(params, socket_memoria, logger, &translate_address,
-                            si, di, pid);
+  case COPY_STRING: {
+    int socket_read = connection_create_client(ip_memoria, puerto_memoria);
+    int socket_write = connection_create_client(ip_memoria, puerto_memoria);
+    instruction_copy_string(params, socket_read, socket_write, logger,
+                            &translate_address, si, di, pid);
+    connection_close(socket_read);
+    connection_close(socket_write);
+  }
   default:
     break;
   }

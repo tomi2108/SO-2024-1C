@@ -1,4 +1,5 @@
 #include "instruction.h"
+#include "buffer.h"
 #include "io_type.h"
 #include <stdint.h>
 
@@ -190,7 +191,8 @@ void instruction_resize(t_list *params, packet_t *instruction_packet,
   packet_add_uint32(instruction_packet, *(uint32_t *)first_param->value);
 }
 
-void instruction_copy_string(t_list *params, int client_socket, t_log *logger,
+void instruction_copy_string(t_list *params, int socket_read, int socket_write,
+                             t_log *logger,
                              uint32_t (*translate_address)(uint32_t, uint32_t),
                              uint32_t si, uint32_t di, uint32_t pid) {
   param *first_param = list_get(params, 0);
@@ -204,17 +206,18 @@ void instruction_copy_string(t_list *params, int client_socket, t_log *logger,
   packet_add_uint32(req, physical_address_si);
   packet_add_uint32(req, pid);
   packet_add_uint32(req, size);
-  packet_send(req, client_socket);
+  packet_send(req, socket_read);
   log_info(logger,
            "PID: %u - Accion: LECTURA - Direccion fisica: %u - Tamaño: %u", pid,
            physical_address_si, size);
   packet_destroy(req);
 
   // Recibir respuesta de lectura
-  packet_t *read_response = packet_recieve(client_socket);
-  uint8_t *buffer = malloc(size);
+  packet_t *read_response = packet_recieve(socket_read);
+  buffer_t *buffer = buffer_create();
   for (uint32_t i = 0; i < size; i++) {
-    buffer[i] = packet_read_uint8(read_response);
+    uint8_t byte = packet_read_uint8(read_response);
+    buffer_add_uint8(buffer, byte);
   }
   packet_destroy(read_response);
 
@@ -227,14 +230,14 @@ void instruction_copy_string(t_list *params, int client_socket, t_log *logger,
   packet_add_uint32(res, pid);
   packet_add_uint32(res, size);
   for (uint32_t i = 0; i < size; i++) {
-    packet_add_uint8(res, buffer[i]);
+    uint8_t byte = buffer_read_uint8(buffer);
+    packet_add_uint8(res, byte);
   }
-  packet_send(res, client_socket);
+  buffer_destroy(buffer);
+  packet_send(res, socket_write);
   packet_destroy(res);
   log_info(logger, "PID: %u - Accion: ESCRITURA - Direccion fisica: %u", pid,
            physical_address_di);
-
-  free(buffer);
 }
 
 void instruction_io_stdin(t_list *params, packet_t *instruction_packet,
