@@ -29,7 +29,6 @@ int cantidad_entradas_tlb;
 char *algoritmo_tlb;
 
 int dealloc = 0;
-uint32_t tamanio_pagina = 0;
 
 uint32_t pc = 0;
 
@@ -119,7 +118,7 @@ uint32_t solicitar_marco_de_memoria(uint32_t pid, uint32_t page_number) {
   return frame_number;
 }
 
-void solicitar_tamanio_pagina() {
+uint32_t solicitar_tamanio_pagina() {
   int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
   if (socket_memoria == -1)
     exit_client_connection_error(logger);
@@ -131,8 +130,9 @@ void solicitar_tamanio_pagina() {
   packet_t *res = packet_recieve(socket_memoria);
   connection_close(socket_memoria);
 
-  tamanio_pagina = packet_read_uint32(res);
+  uint32_t tamanio_pagina = packet_read_uint32(res);
   packet_destroy(res);
+  return tamanio_pagina;
 }
 
 void actualizar_tlb(uint32_t pid, uint32_t frame_number, int page_number) {
@@ -142,35 +142,31 @@ void actualizar_tlb(uint32_t pid, uint32_t frame_number, int page_number) {
   new_entry->num_marco = frame_number;
 
   if (list_size(tlb) >= cantidad_entradas_tlb) {
-    // Implementar política de reemplazo
-    if (strcmp(algoritmo_tlb, "FIFO") == 0) {
-      list_remove_and_destroy_element(tlb, 0,
-                                      &free); // Elimina la entrada más antigua
-    } else if (strcmp(algoritmo_tlb, "LRU") == 0) {
-      // La política LRU implica mover la entrada más reciente al final, así que
-      // aquí solo eliminamos el primer elemento como en FIFO.
+    if (strcmp(algoritmo_tlb, "FIFO") == 0)
       list_remove_and_destroy_element(tlb, 0, &free);
-    }
+    else if (strcmp(algoritmo_tlb, "LRU") == 0)
+      list_remove_and_destroy_element(tlb, 0, &free);
   }
-
   list_add(tlb, new_entry);
 }
 
-uint32_t numero_pagina(uint32_t logical_address) {
-  return logical_address / tamanio_pagina;
+uint32_t numero_pagina(uint32_t logical_address, uint32_t page_size) {
+  return logical_address / page_size;
 }
 
 uint32_t calcular_desplazamiento(uint32_t logical_addres,
-                                 uint32_t numero_pagina) {
-  return logical_addres - numero_pagina * tamanio_pagina;
+                                 uint32_t numero_pagina, uint32_t page_size) {
+  return logical_addres - numero_pagina * page_size;
 }
 
 uint32_t translate_address(uint32_t logical_address, uint32_t pid) {
   log_info(logger, "Traduciendo dirección lógica %u para el PID %d",
            logical_address, pid);
+  uint32_t tamanio_pagina = solicitar_tamanio_pagina();
 
-  uint32_t page_number = numero_pagina(logical_address);
-  uint32_t offset = calcular_desplazamiento(logical_address, page_number);
+  uint32_t page_number = numero_pagina(logical_address, tamanio_pagina);
+  uint32_t offset =
+      calcular_desplazamiento(logical_address, page_number, tamanio_pagina);
 
   uint32_t frame_number = 0;
   // status_code tlb_search_result =
@@ -179,11 +175,9 @@ uint32_t translate_address(uint32_t logical_address, uint32_t pid) {
   // if (tlb_search_result == ERROR) {
   //   // TLB Miss
   frame_number = solicitar_marco_de_memoria(pid, page_number);
-  //   // Actualizar la TLB con el nuevo marco obtenido
   //   actualizar_tlb(pid, frame_number, page_number);
   // }
 
-  // Dirección física = (marco * tamaño de página) + desplazamiento
   uint32_t physical_address = (frame_number * tamanio_pagina) + offset;
   log_info(logger, "Dirección fisica %u", physical_address);
 
@@ -560,8 +554,6 @@ int main(int argc, char *argv[]) {
 
   cantidad_entradas_tlb = config_get_int_value(config, "CANTIDAD_ENTRADAS_TLB");
   algoritmo_tlb = config_get_string_value(config, "ALGORITMO_TLB");
-
-  solicitar_tamanio_pagina();
 
   sem_init(&sem_check_interrupt, 1, 1);
   sem_init(&sem_process_interrupt, 1, 0);

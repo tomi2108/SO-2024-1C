@@ -104,13 +104,13 @@ int get_frame_from_page(t_list *table, uint32_t page, uint32_t pid) {
 int get_next_pid_page(t_list *table, uint32_t pid) {
   pthread_mutex_lock(&mutex_page_table);
   t_list_iterator *iterator = list_iterator_create(table);
-  frame *next_frame = list_iterator_next(iterator);
+  frame *frame = list_iterator_next(iterator);
 
-  while (next_frame->is_free == 1 || next_frame->pid != pid ||
-         !list_iterator_has_next(iterator))
-    next_frame = list_iterator_next(iterator);
+  while ((frame->is_free == 1 || frame->pid != pid) &&
+         list_iterator_has_next(iterator))
+    frame = list_iterator_next(iterator);
 
-  if (next_frame->is_free == 1 || next_frame->pid != pid) {
+  if (frame->is_free == 1 || frame->pid != pid) {
     pthread_mutex_unlock(&mutex_page_table);
     list_iterator_destroy(iterator);
     return -1;
@@ -118,7 +118,7 @@ int get_next_pid_page(t_list *table, uint32_t pid) {
 
   pthread_mutex_unlock(&mutex_page_table);
   list_iterator_destroy(iterator);
-  return next_frame->page;
+  return frame->page;
 }
 
 int get_free_frames() {
@@ -347,29 +347,42 @@ void response_write_dir(packet_t *request, int client_socket) {
 void *atender_cliente(void *args) {
   int client_socket = *(int *)args;
   packet_t *req = packet_recieve(client_socket);
-  usleep(retardo_respuesta * 1000);
   switch (req->type) {
-  case INIT_PROCESS:
+  case INIT_PROCESS: {
+    usleep(retardo_respuesta * 1000);
     response_init_process(req, client_socket);
     break;
-  case FETCH_INSTRUCTION:
+  }
+  case FETCH_INSTRUCTION: {
+    usleep(retardo_respuesta * 1000);
     response_fetch_instruction(req, client_socket);
     break;
-  case READ_DIR:
+  }
+  case READ_DIR: {
+    usleep(retardo_respuesta * 1000);
     response_read_dir(req, client_socket);
     break;
-  case WRITE_DIR:
+  }
+  case WRITE_DIR: {
+    usleep(retardo_respuesta * 1000);
     response_write_dir(req, client_socket);
     break;
-  case RESIZE_PROCESS:
+  }
+  case RESIZE_PROCESS: {
+    usleep(retardo_respuesta * 1000);
     response_resize_process(req, client_socket);
     break;
-  case FREE_PROCESS:
+  }
+  case FREE_PROCESS: {
+    usleep(retardo_respuesta * 1000);
     response_free_process(req, client_socket);
     break;
-  case FETCH_FRAME_NUMBER:
+  }
+  case FETCH_FRAME_NUMBER: {
+    usleep(retardo_respuesta * 1000);
     response_fetch_frame_number(req, client_socket);
     break;
+  }
   case TAMANIO_PAGINA_REQUEST: {
     packet_t *res = packet_create(TAMANIO_PAGINA_RESPONSE);
     packet_add_uint32(res, tam_pagina);
