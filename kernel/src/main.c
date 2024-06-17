@@ -1231,7 +1231,7 @@ void finish_process(uint32_t pid) {
     }
   }
 
-  log_error(logger, "No se encontro un proceso con pid %u", pid);
+  log_warning(logger, "No se encontro un proceso con pid %u", pid);
 }
 
 void print_io_queue(char *name, void *value) {

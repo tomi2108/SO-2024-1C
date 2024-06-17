@@ -159,7 +159,8 @@ void instruction_copy_string(t_list *params, char *server_ip, char *server_port,
                              t_log *logger,
                              uint32_t (*translate_address)(uint32_t, uint32_t),
                              uint32_t si, uint32_t di, uint32_t pid,
-                             uint32_t page_size, buffer_t *write_buffer);
+                             uint32_t page_size, buffer_t *write_buffer,
+                             buffer_t *read_buffer);
 
 /**
  * @fn     instruction_io_stdin

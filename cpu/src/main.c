@@ -368,7 +368,7 @@ void exec_instruction(instruction_op op, t_list *params,
     uint32_t tamanio_pagina = solicitar_tamanio_pagina();
     instruction_copy_string(params, ip_memoria, puerto_memoria, logger,
                             &translate_address, si, di, pid, tamanio_pagina,
-                            NULL);
+                            NULL, NULL);
   }
   default:
     break;
