@@ -326,10 +326,9 @@ void exec_instruction(instruction_op op, t_list *params,
     break;
   }
   case MOV_OUT: {
-    int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
-    instruction_mov_out(params, socket_memoria, logger, &translate_address,
-                        pid);
-    connection_close(socket_memoria);
+    uint32_t tamanio_pagina = solicitar_tamanio_pagina();
+    instruction_mov_out(params, logger, &translate_address, pid, tamanio_pagina,
+                        ip_memoria, puerto_memoria, NULL);
     break;
   }
   case RESIZE:

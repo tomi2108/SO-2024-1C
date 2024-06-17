@@ -1,7 +1,5 @@
 #include "instruction.h"
 #include "buffer.h"
-#include "io_type.h"
-#include <stdint.h>
 
 char *instruction_op_to_string(instruction_op op) {
   switch (op) {
@@ -157,27 +155,58 @@ void instruction_mov_in(t_list *params, int client_socket, t_log *logger,
   packet_destroy(res);
 }
 
-void instruction_mov_out(t_list *params, int client_socket, t_log *logger,
+void instruction_mov_out(t_list *params, t_log *logger,
                          uint32_t (*translate_address)(uint32_t, uint32_t),
-                         uint32_t pid) {
-
+                         uint32_t pid, uint32_t page_size, char *server_ip,
+                         char *server_port, buffer_t *write_buffer) {
   param *first_param = list_get(params, 0);
   param *second_param = list_get(params, 1);
 
   uint32_t logical_address = *(uint32_t *)first_param->value;
+  uint32_t write_value = *(uint32_t *)second_param->value;
+
+  uint32_t size = 4;
+
+  if (write_buffer == NULL) {
+    write_buffer = buffer_create();
+    buffer_add_uint32(write_buffer, write_value);
+  } else {
+    size = write_buffer->size - write_buffer->offset;
+  }
+
   uint32_t physical_address = translate_address(logical_address, pid);
 
-  uint32_t write_value = *(uint32_t *)second_param->value;
+  uint32_t page_number = logical_address / page_size;
+  uint32_t offset = logical_address - page_number * page_size;
+  int remaining = size + offset - page_size;
+  uint8_t split = size - remaining;
+
+  int client_socket = connection_create_client(server_ip, server_port);
   packet_t *req = packet_create(WRITE_DIR);
   packet_add_uint32(req, physical_address);
   packet_add_uint32(req, pid);
-  packet_add_uint32(req, 4);
-
-  for (int i = 0; i < 4; i++)
-    packet_add_uint8(req, *((uint8_t *)(&write_value) + i));
-
+  packet_add_uint32(req, split);
+  for (int i = 0; i < split; i++) {
+    uint8_t byte = buffer_read_uint8(write_buffer);
+    packet_add_uint8(req, byte);
+  }
   packet_send(req, client_socket);
   packet_destroy(req);
+
+  if (remaining > 0 || write_buffer->offset == write_buffer->size) {
+    t_list *new_params = list_create();
+    uint32_t new_address = logical_address + split;
+    uint32_t new_write_value = write_value;
+    param new_first_param = {.type = NUMBER, .value = &new_address};
+    param new_second_param = {.type = NUMBER, .value = &new_write_value};
+    list_add(new_params, &new_first_param);
+    list_add(new_params, &new_second_param);
+    instruction_mov_out(new_params, logger, translate_address, pid, page_size,
+                        server_ip, server_port, write_buffer);
+    list_destroy(new_params);
+  } else {
+    buffer_destroy(write_buffer);
+  }
 
   log_info(logger,
            "PID: %u - Accion: ESCRITURA - Direccion fisica: %u - Valor: %u",
@@ -190,6 +219,7 @@ void instruction_resize(t_list *params, packet_t *instruction_packet,
 
   packet_add_uint32(instruction_packet, pid);
   packet_add_uint32(instruction_packet, *(uint32_t *)first_param->value);
+  instru
 }
 
 void instruction_copy_string(t_list *params, int socket_read, int socket_write,
