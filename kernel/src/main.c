@@ -1316,17 +1316,6 @@ void list_processes(void) {
   list_iterator_destroy(finished_iterator);
 };
 
-void print_resources() {
-  pthread_mutex_lock(&mutex_resources_array);
-  printf("%d: ", num_resources);
-  printf("[");
-  for (int i = 0; i < num_resources; i++) {
-    printf(" %d,", resources_array[i].instances);
-  }
-  printf(" ]\n");
-  pthread_mutex_unlock(&mutex_resources_array);
-}
-
 void print_dir(uint32_t dir) {
   int socket = connection_create_client(ip_memoria, puerto_memoria);
   packet_t *req = packet_create(READ_DIR);
@@ -1364,9 +1353,6 @@ void exec_command(command_op op, param p) {
     break;
   case FINISH_PROCESS:
     finish_process(*(uint32_t *)p.value);
-    break;
-  case PRINT_RESOURCES:
-    print_resources();
     break;
   case PRINT_DIR:
     print_dir(*(uint32_t *)p.value);

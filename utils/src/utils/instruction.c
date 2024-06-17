@@ -82,7 +82,8 @@ int instruction_is_io(instruction_op op) {
 }
 
 int instruction_is_syscall(instruction_op op) {
-  if (instruction_is_io(op) || op == WAIT || op == SIGNAL || op == EXIT)
+  if (instruction_is_io(op) || op == RESIZE || op == WAIT || op == SIGNAL ||
+      op == EXIT)
     return 1;
   return 0;
 }

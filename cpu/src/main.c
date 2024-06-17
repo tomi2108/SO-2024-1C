@@ -29,7 +29,7 @@ int cantidad_entradas_tlb;
 char *algoritmo_tlb;
 
 int dealloc = 0;
-int tamanio_pagina = 0;
+uint32_t tamanio_pagina = 0;
 
 uint32_t pc = 0;
 
@@ -98,7 +98,7 @@ status_code nro_frame_tlb(uint32_t pid, int page_number,
   }
 }
 
-uint32_t solicitar_marco_de_memoria(uint32_t pid, int page_number) {
+uint32_t solicitar_marco_de_memoria(uint32_t pid, uint32_t page_number) {
   int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
   if (socket_memoria == -1)
     exit_client_connection_error(logger);
@@ -112,7 +112,9 @@ uint32_t solicitar_marco_de_memoria(uint32_t pid, int page_number) {
   packet_t *res = packet_recieve(socket_memoria);
   connection_close(socket_memoria);
 
+  status_unpack(res);
   uint32_t frame_number = packet_read_uint32(res);
+
   packet_destroy(res);
   return frame_number;
 }
@@ -129,7 +131,7 @@ void solicitar_tamanio_pagina() {
   packet_t *res = packet_recieve(socket_memoria);
   connection_close(socket_memoria);
 
-  tamanio_pagina = packet_read_uint8(res);
+  tamanio_pagina = packet_read_uint32(res);
   packet_destroy(res);
 }
 
@@ -154,48 +156,38 @@ void actualizar_tlb(uint32_t pid, uint32_t frame_number, int page_number) {
   list_add(tlb, new_entry);
 }
 
-int numero_pagina(uint32_t logical_address) {
-  if (tamanio_pagina == 0) {
-    log_error(logger,
-              "El tamaño de página es 0, no se puede realizar la división.");
-    exit_input_error(logger);
-  }
+uint32_t numero_pagina(uint32_t logical_address) {
   return logical_address / tamanio_pagina;
 }
 
-int calcular_desplazamiento(uint32_t logical_addres, int numero_pagina) {
+uint32_t calcular_desplazamiento(uint32_t logical_addres,
+                                 uint32_t numero_pagina) {
   return logical_addres - numero_pagina * tamanio_pagina;
 }
 
 uint32_t translate_address(uint32_t logical_address, uint32_t pid) {
-  // log_info(logger, "Traduciendo dirección lógica %u para el PID %d",
-  //          logical_address, pid);
-  // int page_number = numero_pagina(logical_address);
-  //
-  // if (page_number < 0) {
-  //   log_error(logger, "Número de página inválido: %d", page_number);
-  //   exit_input_error(logger);
-  // }
-  //
-  // int offset = calcular_desplazamiento(logical_address, page_number);
-  //
-  // uint32_t frame_number;
+  log_info(logger, "Traduciendo dirección lógica %u para el PID %d",
+           logical_address, pid);
+
+  uint32_t page_number = numero_pagina(logical_address);
+  uint32_t offset = calcular_desplazamiento(logical_address, page_number);
+
+  uint32_t frame_number = 0;
   // status_code tlb_search_result =
   //     nro_frame_tlb(pid, page_number, &frame_number);
   //
   // if (tlb_search_result == ERROR) {
   //   // TLB Miss
-  //   frame_number = solicitar_marco_de_memoria(pid, page_number);
-  //
+  frame_number = solicitar_marco_de_memoria(pid, page_number);
   //   // Actualizar la TLB con el nuevo marco obtenido
   //   actualizar_tlb(pid, frame_number, page_number);
   // }
-  //
-  // // Dirección física = (marco * tamaño de página) + desplazamiento
-  // uint32_t physical_address = (frame_number * tamanio_pagina) + offset;
-  // log_info(logger, "Dirección fisica %u", physical_address);
-  //
-  return logical_address;
+
+  // Dirección física = (marco * tamaño de página) + desplazamiento
+  uint32_t physical_address = (frame_number * tamanio_pagina) + offset;
+  log_info(logger, "Dirección fisica %u", physical_address);
+
+  return physical_address;
 }
 
 char *request_fetch_instruction(process_t process) {
