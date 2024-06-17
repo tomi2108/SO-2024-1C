@@ -1,5 +1,4 @@
 #include "instruction.h"
-#include "buffer.h"
 
 char *instruction_op_to_string(instruction_op op) {
   switch (op) {
@@ -161,7 +160,6 @@ void instruction_mov_out(t_list *params, t_log *logger,
                          char *server_port, buffer_t *write_buffer) {
   param *first_param = list_get(params, 0);
   param *second_param = list_get(params, 1);
-
   uint32_t logical_address = *(uint32_t *)first_param->value;
   uint32_t write_value = *(uint32_t *)second_param->value;
 
@@ -179,7 +177,9 @@ void instruction_mov_out(t_list *params, t_log *logger,
   uint32_t page_number = logical_address / page_size;
   uint32_t offset = logical_address - page_number * page_size;
   int remaining = size + offset - page_size;
-  uint8_t split = size - remaining;
+  uint8_t split = size;
+  if (remaining > 0)
+    split = size - remaining;
 
   int client_socket = connection_create_client(server_ip, server_port);
   packet_t *req = packet_create(WRITE_DIR);
@@ -193,12 +193,11 @@ void instruction_mov_out(t_list *params, t_log *logger,
   packet_send(req, client_socket);
   packet_destroy(req);
 
-  if (remaining > 0 || write_buffer->offset == write_buffer->size) {
+  if (remaining > 0) {
     t_list *new_params = list_create();
     uint32_t new_address = logical_address + split;
-    uint32_t new_write_value = write_value;
     param new_first_param = {.type = NUMBER, .value = &new_address};
-    param new_second_param = {.type = NUMBER, .value = &new_write_value};
+    param new_second_param = {.type = NUMBER, .value = &write_value};
     list_add(new_params, &new_first_param);
     list_add(new_params, &new_second_param);
     instruction_mov_out(new_params, logger, translate_address, pid, page_size,
@@ -219,38 +218,49 @@ void instruction_resize(t_list *params, packet_t *instruction_packet,
 
   packet_add_uint32(instruction_packet, pid);
   packet_add_uint32(instruction_packet, *(uint32_t *)first_param->value);
-  instru
 }
 
-void instruction_copy_string(t_list *params, int socket_read, int socket_write,
+void instruction_copy_string(t_list *params, char *server_ip, char *server_port,
                              t_log *logger,
                              uint32_t (*translate_address)(uint32_t, uint32_t),
-                             uint32_t si, uint32_t di, uint32_t pid) {
+                             uint32_t si, uint32_t di, uint32_t pid,
+                             uint32_t page_size, buffer_t *write_buffer) {
   param *first_param = list_get(params, 0);
   uint32_t size = *(uint32_t *)first_param->value;
 
-  // Obtener dirección física de si
-  uint32_t physical_address_si = translate_address(si, pid);
+  if (write_buffer == NULL) {
+    // Obtener dirección física de si
+    uint32_t physical_address_si = translate_address(si, pid);
 
-  // Enviar solicitud de lectura a si
-  packet_t *req = packet_create(READ_DIR);
-  packet_add_uint32(req, physical_address_si);
-  packet_add_uint32(req, pid);
-  packet_add_uint32(req, size);
-  packet_send(req, socket_read);
-  log_info(logger,
-           "PID: %u - Accion: LECTURA - Direccion fisica: %u - Tamaño: %u", pid,
-           physical_address_si, size);
-  packet_destroy(req);
+    // Enviar solicitud de lectura a si
+    packet_t *req = packet_create(READ_DIR);
+    packet_add_uint32(req, physical_address_si);
+    packet_add_uint32(req, pid);
+    packet_add_uint32(req, size);
+    int socket_read = connection_create_client(server_ip, server_port);
+    packet_send(req, socket_read);
+    log_info(logger,
+             "PID: %u - Accion: LECTURA - Direccion fisica: %u - Tamaño: %u",
+             pid, physical_address_si, size);
+    packet_destroy(req);
 
-  // Recibir respuesta de lectura
-  packet_t *read_response = packet_recieve(socket_read);
-  buffer_t *buffer = buffer_create();
-  for (uint32_t i = 0; i < size; i++) {
-    uint8_t byte = packet_read_uint8(read_response);
-    buffer_add_uint8(buffer, byte);
+    // Recibir respuesta de lectura
+    packet_t *read_response = packet_recieve(socket_read);
+    write_buffer = buffer_create();
+    for (uint32_t i = 0; i < size; i++) {
+      uint8_t byte = packet_read_uint8(read_response);
+      buffer_add_uint8(write_buffer, byte);
+    }
+    connection_close(socket_read);
+    packet_destroy(read_response);
   }
-  packet_destroy(read_response);
+
+  uint32_t page_number = di / page_size;
+  uint32_t offset = di - page_number * page_size;
+  int remaining = size + offset - page_size;
+  uint8_t split = size;
+  if (remaining > 0)
+    split = size - remaining;
 
   // Obtener dirección física de di
   uint32_t physical_address_di = translate_address(di, pid);
@@ -259,14 +269,30 @@ void instruction_copy_string(t_list *params, int socket_read, int socket_write,
   packet_t *res = packet_create(WRITE_DIR);
   packet_add_uint32(res, physical_address_di);
   packet_add_uint32(res, pid);
-  packet_add_uint32(res, size);
-  for (uint32_t i = 0; i < size; i++) {
-    uint8_t byte = buffer_read_uint8(buffer);
+  packet_add_uint32(res, split);
+  for (uint32_t i = 0; i < split; i++) {
+    uint8_t byte = buffer_read_uint8(write_buffer);
     packet_add_uint8(res, byte);
   }
-  buffer_destroy(buffer);
+  int socket_write = connection_create_client(server_ip, server_port);
   packet_send(res, socket_write);
+  connection_close(socket_write);
   packet_destroy(res);
+
+  if (remaining > 0) {
+    t_list *new_params = list_create();
+    param new_first_param = {.type = NUMBER, .value = &remaining};
+    list_add(new_params, &new_first_param);
+
+    uint32_t new_di = di + split;
+    instruction_copy_string(new_params, server_ip, server_port, logger,
+                            translate_address, si, new_di, pid, page_size,
+                            write_buffer);
+    list_destroy(new_params);
+  } else {
+    buffer_destroy(write_buffer);
+  }
+
   log_info(logger, "PID: %u - Accion: ESCRITURA - Direccion fisica: %u", pid,
            physical_address_di);
 }

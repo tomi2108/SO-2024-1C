@@ -365,12 +365,10 @@ void exec_instruction(instruction_op op, t_list *params,
     instruction_exit();
     break;
   case COPY_STRING: {
-    int socket_read = connection_create_client(ip_memoria, puerto_memoria);
-    int socket_write = connection_create_client(ip_memoria, puerto_memoria);
-    instruction_copy_string(params, socket_read, socket_write, logger,
-                            &translate_address, si, di, pid);
-    connection_close(socket_read);
-    connection_close(socket_write);
+    uint32_t tamanio_pagina = solicitar_tamanio_pagina();
+    instruction_copy_string(params, ip_memoria, puerto_memoria, logger,
+                            &translate_address, si, di, pid, tamanio_pagina,
+                            NULL);
   }
   default:
     break;

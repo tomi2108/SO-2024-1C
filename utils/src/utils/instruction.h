@@ -155,10 +155,11 @@ void instruction_resize(t_list *params, packet_t *instruction_packet,
  * @param  di      di register
  * @brief  COPY_STRING instruction implementation
  */
-void instruction_copy_string(t_list *params, int socket_read, int socket_write,
+void instruction_copy_string(t_list *params, char *server_ip, char *server_port,
                              t_log *logger,
                              uint32_t (*translate_address)(uint32_t, uint32_t),
-                             uint32_t si, uint32_t di, uint32_t pid);
+                             uint32_t si, uint32_t di, uint32_t pid,
+                             uint32_t page_size, buffer_t *write_buffer);
 
 /**
  * @fn     instruction_io_stdin
