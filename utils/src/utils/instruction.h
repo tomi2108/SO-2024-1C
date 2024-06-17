@@ -120,9 +120,10 @@ void instruction_io_gen_sleep(t_list *params, packet_t *instruction_packet);
  * @param  pid                Pid from process
  * @brief  MOV_IN instruction implementation
  */
-void instruction_mov_in(t_list *params, int client_socket, t_log *logger,
+void instruction_mov_in(t_list *params, t_log *logger,
                         uint32_t (*translate_address)(uint32_t, uint32_t),
-                        uint32_t pid);
+                        uint32_t pid, uint32_t page_size, char *server_ip,
+                        char *server_port, buffer_t *read_buffer);
 
 /**
  * @fn     instruction_mov_out

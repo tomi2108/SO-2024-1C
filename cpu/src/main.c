@@ -320,9 +320,9 @@ void exec_instruction(instruction_op op, t_list *params,
     instruction_io_gen_sleep(params, instruction_packet);
     break;
   case MOV_IN: {
-    int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
-    instruction_mov_in(params, socket_memoria, logger, &translate_address, pid);
-    connection_close(socket_memoria);
+    uint32_t tamanio_pagina = solicitar_tamanio_pagina();
+    instruction_mov_in(params, logger, &translate_address, pid, tamanio_pagina,
+                       ip_memoria, puerto_memoria, NULL);
     break;
   }
   case MOV_OUT: {
@@ -439,8 +439,8 @@ void response_exec_process(packet_t *req, int client_socket) {
     packet_t *packet = packet_create(INSTRUCTION);
     packet_add(packet, &operation, sizeof(instruction_op));
 
-    exec_instruction(operation, params, packet, process.pid);
     log_info(logger, "PID: %u - Ejecutando: %s", process.pid, instruction);
+    exec_instruction(operation, params, packet, process.pid);
     list_destroy_and_destroy_elements(params, &free_param);
 
     packet_send(packet, client_socket);
