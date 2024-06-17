@@ -237,15 +237,11 @@ void response_resize_process(packet_t *req, int client_socket) {
 
 void response_free_process(packet_t *req, int client_socket) {
   uint32_t pid = packet_read_uint32(req);
-  log_debug(logger, "Liberando PID: %u", pid);
   uint32_t process_size = get_process_size(pid);
-  log_debug(logger, "Tamanio PID %u: %u", pid, process_size);
   if (process_size != 0) {
     uint32_t cant_paginas = process_size / tam_pagina;
-    log_debug(logger, "Liberando %u paginas", cant_paginas);
     reduce_process(pid, cant_paginas);
   }
-  log_debug(logger, "Liberado");
   packet_t *res = status_pack(OK);
   packet_send(res, client_socket);
   packet_destroy(res);

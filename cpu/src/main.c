@@ -83,7 +83,7 @@ status_code nro_frame_tlb(uint32_t pid, int page_number,
                           uint32_t *frame_number) {
   int index = 0;
   t_tlb *entry = search_tlb(pid, page_number, &index);
-  if (!entry) {
+  if (entry == NULL) {
     log_info(logger, "PID: %d - TLB MISS - Pagina: %d", pid, page_number);
     return ERROR;
   } else {
@@ -169,14 +169,16 @@ uint32_t translate_address(uint32_t logical_address, uint32_t pid) {
       calcular_desplazamiento(logical_address, page_number, tamanio_pagina);
 
   uint32_t frame_number = 0;
-  // status_code tlb_search_result =
-  //     nro_frame_tlb(pid, page_number, &frame_number);
-  //
-  // if (tlb_search_result == ERROR) {
-  //   // TLB Miss
-  frame_number = solicitar_marco_de_memoria(pid, page_number);
-  //   actualizar_tlb(pid, frame_number, page_number);
-  // }
+
+  if (cantidad_entradas_tlb > 0) {
+    status_code tlb_search_result =
+        nro_frame_tlb(pid, page_number, &frame_number);
+    if (tlb_search_result == ERROR) {
+      frame_number = solicitar_marco_de_memoria(pid, page_number);
+      actualizar_tlb(pid, frame_number, page_number);
+    }
+  } else
+    frame_number = solicitar_marco_de_memoria(pid, page_number);
 
   uint32_t physical_address = (frame_number * tamanio_pagina) + offset;
   log_info(logger, "Dirección fisica %u", physical_address);
