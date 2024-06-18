@@ -34,7 +34,7 @@ typedef enum {
   UNKNOWN_INSTRUCTION
 } instruction_op;
 
-typedef enum { REGISTER, NUMBER, STRING } param_type;
+typedef enum { EXTENDED_REGISTER, REGISTER, NUMBER, STRING } param_type;
 
 typedef struct {
   param_type type;
@@ -123,7 +123,7 @@ void instruction_io_gen_sleep(t_list *params, packet_t *instruction_packet);
 void instruction_mov_in(t_list *params, t_log *logger,
                         uint32_t (*translate_address)(uint32_t, uint32_t),
                         uint32_t pid, uint32_t page_size, char *server_ip,
-                        char *server_port, buffer_t *read_buffer);
+                        char *server_port);
 
 /**
  * @fn     instruction_mov_out
@@ -137,7 +137,7 @@ void instruction_mov_in(t_list *params, t_log *logger,
 void instruction_mov_out(t_list *params, t_log *logger,
                          uint32_t (*translate_address)(uint32_t, uint32_t),
                          uint32_t pid, uint32_t page_size, char *server_ip,
-                         char *server_port, buffer_t *write_buffer);
+                         char *server_port);
 
 /**
  * @fn     instruction_resize
@@ -160,8 +160,7 @@ void instruction_copy_string(t_list *params, char *server_ip, char *server_port,
                              t_log *logger,
                              uint32_t (*translate_address)(uint32_t, uint32_t),
                              uint32_t si, uint32_t di, uint32_t pid,
-                             uint32_t page_size, buffer_t *write_buffer,
-                             buffer_t *read_buffer);
+                             uint32_t page_size);
 
 /**
  * @fn     instruction_io_stdin
@@ -172,8 +171,8 @@ void instruction_copy_string(t_list *params, char *server_ip, char *server_port,
  * @brief  IO_STDIN_READ instruction implementation
  */
 void instruction_io_stdin(t_list *params, packet_t *instruction_packet,
-                          uint32_t (*translate_addres)(uint32_t, uint32_t),
-                          uint32_t pid);
+                          uint32_t (*translate_address)(uint32_t, uint32_t),
+                          uint32_t pid, uint32_t page_size);
 
 /**
  * @fn     instruction_io_stdout
@@ -185,7 +184,7 @@ void instruction_io_stdin(t_list *params, packet_t *instruction_packet,
  */
 void instruction_io_stdout(t_list *params, packet_t *instruction_packet,
                            uint32_t (*translate_addres)(uint32_t, uint32_t),
-                           uint32_t pid);
+                           uint32_t pid, uint32_t page_size);
 
 /**
  * @fn     instruction_io_fs_create

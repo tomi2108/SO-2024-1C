@@ -1,5 +1,7 @@
 #include "instruction.h"
+#include "buffer.h"
 #include "io_type.h"
+#include "packet.h"
 
 char *instruction_op_to_string(instruction_op op) {
   switch (op) {
@@ -128,82 +130,94 @@ void instruction_io_gen_sleep(t_list *params, packet_t *instruction_packet) {
 void instruction_mov_in(t_list *params, t_log *logger,
                         uint32_t (*translate_address)(uint32_t, uint32_t),
                         uint32_t pid, uint32_t page_size, char *server_ip,
-                        char *server_port, buffer_t *read_buffer) {
+                        char *server_port) {
   param *first_param = list_get(params, 0);
   param *second_param = list_get(params, 1);
+
   uint32_t logical_address = *(uint32_t *)second_param->value;
   uint32_t physical_address = translate_address(logical_address, pid);
+  buffer_t *read_buffer = buffer_create();
 
-  uint32_t size = 4;
-  if (read_buffer == NULL) {
-    read_buffer = buffer_create();
-  } else {
-    size = size - read_buffer->size;
-  }
+  uint32_t size = first_param->type == EXTENDED_REGISTER ? 4 : 1;
 
   uint32_t page_number = logical_address / page_size;
   uint32_t offset = logical_address - page_number * page_size;
   int remaining = size + offset - page_size;
-  uint8_t split = size;
+  uint32_t split = size;
   if (remaining > 0)
     split = size - remaining;
 
+  int client_socket = connection_create_client(server_ip, server_port);
   packet_t *req = packet_create(READ_DIR);
   packet_add_uint32(req, physical_address);
   packet_add_uint32(req, pid);
   packet_add_uint32(req, split);
-
-  int client_socket = connection_create_client(server_ip, server_port);
   packet_send(req, client_socket);
   packet_destroy(req);
-
   packet_t *res = packet_recieve(client_socket);
-
   for (int i = 0; i < split; i++) {
     uint8_t byte = packet_read_uint8(res);
+    log_info(logger,
+             "PID: %u - Accion: LECTURA - Direccion fisica: %u - Valor: %u",
+             pid, physical_address + i, byte);
     buffer_add_uint8(read_buffer, byte);
   }
   packet_destroy(res);
+  connection_close(client_socket);
 
-  if (remaining > 0) {
-    t_list *new_params = list_create();
-    uint32_t new_address = logical_address + split;
-    uint32_t *new_register = first_param->value;
-    param new_first_param = {.type = NUMBER, .value = new_register};
-    param new_second_param = {.type = NUMBER, .value = &new_address};
-    list_add(new_params, &new_first_param);
-    list_add(new_params, &new_second_param);
-    instruction_mov_in(new_params, logger, translate_address, pid, page_size,
-                       server_ip, server_port, read_buffer);
-    list_destroy(new_params);
-  } else {
-    for (int i = 0; i < read_buffer->size; i++) {
-      uint8_t byte = buffer_read_uint8(read_buffer);
-      *((uint8_t *)first_param->value + i) = byte;
+  while (remaining > 0) {
+    size = remaining;
+    logical_address += split;
+    physical_address = translate_address(logical_address, pid);
+
+    page_number = logical_address / page_size;
+    offset = logical_address - page_number * page_size;
+    remaining = size + offset - page_size;
+    split = size;
+    if (remaining > 0)
+      split = size - remaining;
+
+    client_socket = connection_create_client(server_ip, server_port);
+    req = packet_create(READ_DIR);
+    packet_add_uint32(req, physical_address);
+    packet_add_uint32(req, pid);
+    packet_add_uint32(req, split);
+    packet_send(req, client_socket);
+    packet_destroy(req);
+    res = packet_recieve(client_socket);
+    for (int i = 0; i < split; i++) {
+      uint8_t byte = packet_read_uint8(res);
+      log_info(logger,
+               "PID: %u - Accion: LECTURA - Direccion fisica: %u - Valor: %u",
+               pid, physical_address + i, byte);
+      buffer_add_uint8(read_buffer, byte);
     }
-    buffer_destroy(read_buffer);
-    log_info(logger,
-             "PID: %u - Accion: LECTURA - Direccion fisica: %u - Valor: %u",
-             pid, physical_address, *(uint32_t *)first_param->value);
+    packet_destroy(res);
+    connection_close(client_socket);
   }
+
+  for (int i = 0; i < read_buffer->size; i++) {
+    uint8_t byte = buffer_read_uint8(read_buffer);
+    *((uint8_t *)first_param->value + i) = byte;
+  }
+
+  buffer_destroy(read_buffer);
 }
 
 void instruction_mov_out(t_list *params, t_log *logger,
                          uint32_t (*translate_address)(uint32_t, uint32_t),
                          uint32_t pid, uint32_t page_size, char *server_ip,
-                         char *server_port, buffer_t *write_buffer) {
+                         char *server_port) {
   param *first_param = list_get(params, 0);
   param *second_param = list_get(params, 1);
   uint32_t logical_address = *(uint32_t *)first_param->value;
+
+  uint32_t size = second_param->type == EXTENDED_REGISTER ? 4 : 1;
+
   uint32_t write_value = *(uint32_t *)second_param->value;
-
-  uint32_t size = 4;
-
-  if (write_buffer == NULL) {
-    write_buffer = buffer_create();
-    buffer_add_uint32(write_buffer, write_value);
-  } else {
-    size = write_buffer->size - write_buffer->offset;
+  buffer_t *write_buffer = buffer_create();
+  for (int i = 0; i < size; i++) {
+    buffer_add_uint8(write_buffer, write_value);
   }
 
   uint32_t physical_address = translate_address(logical_address, pid);
@@ -211,7 +225,7 @@ void instruction_mov_out(t_list *params, t_log *logger,
   uint32_t page_number = logical_address / page_size;
   uint32_t offset = logical_address - page_number * page_size;
   int remaining = size + offset - page_size;
-  uint8_t split = size;
+  uint32_t split = size;
   if (remaining > 0)
     split = size - remaining;
 
@@ -222,28 +236,44 @@ void instruction_mov_out(t_list *params, t_log *logger,
   packet_add_uint32(req, split);
   for (int i = 0; i < split; i++) {
     uint8_t byte = buffer_read_uint8(write_buffer);
+    log_info(logger,
+             "PID: %u - Accion: ESCRITURA - Direccion fisica: %u - Valor: %u",
+             pid, physical_address + i, byte);
     packet_add_uint8(req, byte);
   }
   packet_send(req, client_socket);
   packet_destroy(req);
+  connection_close(client_socket);
 
-  if (remaining > 0) {
-    t_list *new_params = list_create();
-    uint32_t new_address = logical_address + split;
-    param new_first_param = {.type = NUMBER, .value = &new_address};
-    param new_second_param = {.type = NUMBER, .value = &write_value};
-    list_add(new_params, &new_first_param);
-    list_add(new_params, &new_second_param);
-    instruction_mov_out(new_params, logger, translate_address, pid, page_size,
-                        server_ip, server_port, write_buffer);
-    list_destroy(new_params);
-  } else {
-    buffer_destroy(write_buffer);
+  while (remaining > 0) {
+    size = remaining;
+    logical_address += split;
+    physical_address = translate_address(logical_address, pid);
+
+    page_number = logical_address / page_size;
+    offset = logical_address - page_number * page_size;
+    remaining = size + offset - page_size;
+    split = size;
+    if (remaining > 0)
+      split = size - remaining;
+
+    client_socket = connection_create_client(server_ip, server_port);
+    req = packet_create(WRITE_DIR);
+    packet_add_uint32(req, physical_address);
+    packet_add_uint32(req, pid);
+    packet_add_uint32(req, split);
+    for (int i = 0; i < split; i++) {
+      uint8_t byte = buffer_read_uint8(write_buffer);
+      log_info(logger,
+               "PID: %u - Accion: ESCRITURA - Direccion fisica: %u - Valor: %u",
+               pid, physical_address + i, byte);
+      packet_add_uint8(req, byte);
+    }
+    packet_send(req, client_socket);
+    packet_destroy(req);
+    connection_close(client_socket);
   }
-
-  log_info(logger,
-           "PID: %u - Accion: ESCRITURA - Direccion fisica: %u - Valor: %u",
-           pid, physical_address, write_value);
+  buffer_destroy(write_buffer);
 }
 
 void instruction_resize(t_list *params, packet_t *instruction_packet,
@@ -258,113 +288,131 @@ void instruction_copy_string(t_list *params, char *server_ip, char *server_port,
                              t_log *logger,
                              uint32_t (*translate_address)(uint32_t, uint32_t),
                              uint32_t si, uint32_t di, uint32_t pid,
-                             uint32_t page_size, buffer_t *write_buffer,
-                             buffer_t *read_buffer) {
+                             uint32_t page_size) {
   param *first_param = list_get(params, 0);
   uint32_t size = *(uint32_t *)first_param->value;
 
-  if (write_buffer == NULL) {
-    uint8_t split = size;
-    uint32_t page_number = si / page_size;
-    uint32_t offset = si - page_number * page_size;
-    int remaining = size + offset - page_size;
+  uint32_t logical_address_si = si;
+  uint32_t logical_address_di = di;
+  uint32_t physical_address_si = translate_address(logical_address_si, pid);
+  uint32_t physical_address_di = translate_address(logical_address_di, pid);
+
+  buffer_t *buffer = buffer_create();
+
+  uint32_t page_number = logical_address_si / page_size;
+  uint32_t offset = logical_address_si - page_number * page_size;
+  int remaining = size + offset - page_size;
+  uint32_t split = size;
+  if (remaining > 0)
+    split = size - remaining;
+
+  int client_socket = connection_create_client(server_ip, server_port);
+  packet_t *req = packet_create(READ_DIR);
+  packet_add_uint32(req, physical_address_si);
+  packet_add_uint32(req, pid);
+  packet_add_uint32(req, split);
+  packet_send(req, client_socket);
+  packet_destroy(req);
+  packet_t *res = packet_recieve(client_socket);
+  for (int i = 0; i < split; i++) {
+    uint8_t byte = packet_read_uint8(res);
+    log_info(logger,
+             "PID: %u - Accion: LECTURA - Direccion fisica: %u - Valor: %u",
+             pid, physical_address_si + i, byte);
+    buffer_add_uint8(buffer, byte);
+  }
+  packet_destroy(res);
+  connection_close(client_socket);
+
+  while (remaining > 0) {
+    size = remaining;
+    logical_address_si += split;
+    physical_address_si = translate_address(logical_address_si, pid);
+
+    page_number = logical_address_si / page_size;
+    offset = logical_address_si - page_number * page_size;
+    remaining = size + offset - page_size;
+    split = size;
     if (remaining > 0)
       split = size - remaining;
-    // Obtener dirección física de si
-    uint32_t physical_address_si = translate_address(si, pid);
 
-    // Enviar solicitud de lectura a si
-    packet_t *req = packet_create(READ_DIR);
+    client_socket = connection_create_client(server_ip, server_port);
+    req = packet_create(READ_DIR);
     packet_add_uint32(req, physical_address_si);
     packet_add_uint32(req, pid);
     packet_add_uint32(req, split);
-    int socket_read = connection_create_client(server_ip, server_port);
-    packet_send(req, socket_read);
-    log_info(logger,
-             "PID: %u - Accion: LECTURA - Direccion fisica: %u - Tamaño: %u",
-             pid, physical_address_si, size);
+    packet_send(req, client_socket);
     packet_destroy(req);
-
-    // Recibir respuesta de lectura
-    packet_t *read_response = packet_recieve(socket_read);
-    connection_close(socket_read);
-    if (read_buffer == NULL) {
-      read_buffer = buffer_create();
+    res = packet_recieve(client_socket);
+    for (int i = 0; i < split; i++) {
+      uint8_t byte = packet_read_uint8(res);
+      log_info(logger,
+               "PID: %u - Accion: LECTURA - Direccion fisica: %u - Valor: %u",
+               pid, physical_address_si + i, byte);
+      buffer_add_uint8(buffer, byte);
     }
-    for (uint32_t i = 0; i < split; i++) {
-      uint8_t byte = packet_read_uint8(read_response);
-      buffer_add_uint8(read_buffer, byte);
-    }
-    packet_destroy(read_response);
-    if (remaining > 0) {
-      t_list *new_params = list_create();
-      uint32_t new_size = remaining;
-      param new_first_param = {.type = NUMBER, .value = &new_size};
-      list_add(new_params, &new_first_param);
+    packet_destroy(res);
+    connection_close(client_socket);
+  }
 
-      uint32_t new_si = si + split;
-      instruction_copy_string(new_params, server_ip, server_port, logger,
-                              translate_address, new_si, di, pid, page_size,
-                              NULL, read_buffer);
-      list_destroy(new_params);
-    } else {
-      t_list *new_params = list_create();
-      uint32_t new_size = read_buffer->size;
-      param new_first_param = {.type = NUMBER, .value = &new_size};
-      list_add(new_params, &new_first_param);
-      instruction_copy_string(new_params, server_ip, server_port, logger,
-                              translate_address, si, di, pid, page_size,
-                              read_buffer, NULL);
-      list_destroy(new_params);
-    }
-  } else {
-    uint8_t split = size;
-    uint32_t page_number = di / page_size;
-    uint32_t offset = di - page_number * page_size;
+  size = *(uint32_t *)first_param->value;
+  page_number = logical_address_di / page_size;
+  offset = logical_address_di - page_number * page_size;
+  remaining = size + offset - page_size;
+  split = size;
+  if (remaining > 0)
+    split = size - remaining;
 
-    int remaining = size + offset - page_size;
+  client_socket = connection_create_client(server_ip, server_port);
+  req = packet_create(WRITE_DIR);
+  packet_add_uint32(req, physical_address_di);
+  packet_add_uint32(req, pid);
+  packet_add_uint32(req, split);
+  for (int i = 0; i < split; i++) {
+    uint8_t byte = buffer_read_uint8(buffer);
+    log_info(logger,
+             "PID: %u - Accion: ESCRITURA - Direccion fisica: %u - Valor: %u",
+             pid, physical_address_di + i, byte);
+    packet_add_uint8(req, byte);
+  }
+  packet_send(req, client_socket);
+  packet_destroy(req);
+  connection_close(client_socket);
+
+  while (remaining > 0) {
+    size = remaining;
+    logical_address_di += split;
+    physical_address_di = translate_address(logical_address_di, pid);
+
+    page_number = logical_address_di / page_size;
+    offset = logical_address_di - page_number * page_size;
+    remaining = size + offset - page_size;
+    split = size;
     if (remaining > 0)
       split = size - remaining;
 
-    // Obtener dirección física de di
-    uint32_t physical_address_di = translate_address(di, pid);
-
-    // Enviar solicitud de escritura a di
-    packet_t *res = packet_create(WRITE_DIR);
-    packet_add_uint32(res, physical_address_di);
-    packet_add_uint32(res, pid);
-    packet_add_uint32(res, split);
-    for (uint32_t i = 0; i < split; i++) {
-      uint8_t byte = buffer_read_uint8(write_buffer);
-      packet_add_uint8(res, byte);
+    client_socket = connection_create_client(server_ip, server_port);
+    req = packet_create(WRITE_DIR);
+    packet_add_uint32(req, physical_address_di);
+    packet_add_uint32(req, pid);
+    packet_add_uint32(req, split);
+    for (int i = 0; i < split; i++) {
+      uint8_t byte = buffer_read_uint8(buffer);
+      log_info(logger,
+               "PID: %u - Accion: ESCRITURA - Direccion fisica: %u - Valor: %u",
+               pid, physical_address_di + i, byte);
+      packet_add_uint8(req, byte);
     }
-    int socket_write = connection_create_client(server_ip, server_port);
-    packet_send(res, socket_write);
-    connection_close(socket_write);
-    packet_destroy(res);
-
-    if (remaining > 0) {
-      t_list *new_params = list_create();
-      uint32_t new_size = remaining;
-      param new_first_param = {.type = NUMBER, .value = &new_size};
-      list_add(new_params, &new_first_param);
-
-      uint32_t new_di = di + split;
-      instruction_copy_string(new_params, server_ip, server_port, logger,
-                              translate_address, si, new_di, pid, page_size,
-                              write_buffer, NULL);
-      list_destroy(new_params);
-    } else {
-      buffer_destroy(write_buffer);
-    }
-    log_info(logger, "PID: %u - Accion: ESCRITURA - Direccion fisica: %u", pid,
-             physical_address_di);
+    packet_send(req, client_socket);
+    packet_destroy(req);
+    connection_close(client_socket);
   }
+  buffer_destroy(buffer);
 }
 
 void instruction_io_stdin(t_list *params, packet_t *instruction_packet,
-                          uint32_t (*translate_addres)(uint32_t, uint32_t),
-                          uint32_t pid) {
+                          uint32_t (*translate_address)(uint32_t, uint32_t),
+                          uint32_t pid, uint32_t page_size) {
 
   param *first_param = list_get(params, 0);
   param *second_param = list_get(params, 1);
@@ -373,25 +421,45 @@ void instruction_io_stdin(t_list *params, packet_t *instruction_packet,
   packet_add_string(instruction_packet, (char *)first_param->value);
 
   packet_add_uint32(instruction_packet,
-                    translate_addres(*(uint32_t *)second_param->value, pid));
+                    translate_address(*(uint32_t *)second_param->value, pid));
   packet_add_uint32(instruction_packet, pid);
   packet_add_uint32(instruction_packet, *(uint32_t *)third_param->value);
 }
 
 void instruction_io_stdout(t_list *params, packet_t *instruction_packet,
-                           uint32_t (*translate_addres)(uint32_t, uint32_t),
-                           uint32_t pid) {
-
+                           uint32_t (*translate_address)(uint32_t, uint32_t),
+                           uint32_t pid, uint32_t page_size) {
   param *first_param = list_get(params, 0);
   param *second_param = list_get(params, 1);
   param *third_param = list_get(params, 2);
-
   packet_add_string(instruction_packet, (char *)first_param->value);
-
-  packet_add_uint32(instruction_packet,
-                    translate_addres(*(uint32_t *)second_param->value, pid));
   packet_add_uint32(instruction_packet, pid);
-  packet_add_uint32(instruction_packet, *(uint32_t *)third_param->value);
+
+  uint32_t size = *(uint32_t *)third_param->value;
+  uint32_t logical_address = *(uint32_t *)second_param->value;
+  uint32_t physical_address = translate_address(logical_address, pid);
+
+  uint32_t page_number = logical_address / page_size;
+  uint32_t offset = logical_address - page_number * page_size;
+  int remaining = size + offset - page_size;
+  uint32_t split = size - remaining;
+  packet_add_uint32(instruction_packet, split);
+  packet_add_uint32(instruction_packet, physical_address);
+
+  while (remaining > 0) {
+    size = remaining;
+    logical_address += split;
+    physical_address = translate_address(logical_address, pid);
+
+    page_number = logical_address / page_size;
+    offset = logical_address - page_number * page_size;
+    remaining = size + offset - page_size;
+    split = size;
+    if (remaining > 0)
+      split = size - remaining;
+    packet_add_uint32(instruction_packet, split);
+    packet_add_uint32(instruction_packet, physical_address);
+  }
 }
 
 void instruction_io_fs_create(t_list *params, packet_t *instruction_packet,

@@ -271,7 +271,7 @@ instruction_op decode_instruction(char *instruction, t_list *params) {
     uint32_t *extended_register = is_extended_register(token);
     if (extended_register != NULL) {
       param *p = malloc(sizeof(param));
-      p->type = REGISTER;
+      p->type = EXTENDED_REGISTER;
       p->value = extended_register;
       list_add(params, p);
       token = strtok(NULL, " ");
@@ -322,24 +322,30 @@ void exec_instruction(instruction_op op, t_list *params,
   case MOV_IN: {
     uint32_t tamanio_pagina = solicitar_tamanio_pagina();
     instruction_mov_in(params, logger, &translate_address, pid, tamanio_pagina,
-                       ip_memoria, puerto_memoria, NULL);
+                       ip_memoria, puerto_memoria);
     break;
   }
   case MOV_OUT: {
     uint32_t tamanio_pagina = solicitar_tamanio_pagina();
     instruction_mov_out(params, logger, &translate_address, pid, tamanio_pagina,
-                        ip_memoria, puerto_memoria, NULL);
+                        ip_memoria, puerto_memoria);
     break;
   }
   case RESIZE:
     instruction_resize(params, instruction_packet, pid);
     break;
-  case IO_STDIN_READ:
-    instruction_io_stdin(params, instruction_packet, &translate_address, pid);
+  case IO_STDIN_READ: {
+    uint32_t tamanio_pagina = solicitar_tamanio_pagina();
+    instruction_io_stdin(params, instruction_packet, &translate_address, pid,
+                         tamanio_pagina);
     break;
-  case IO_STDOUT_WRITE:
-    instruction_io_stdout(params, instruction_packet, &translate_address, pid);
+  }
+  case IO_STDOUT_WRITE: {
+    uint32_t tamanio_pagina = solicitar_tamanio_pagina();
+    instruction_io_stdout(params, instruction_packet, &translate_address, pid,
+                          tamanio_pagina);
     break;
+  }
   case IO_FS_CREATE:
     instruction_io_fs_create(params, instruction_packet, logger, pid);
     break;
@@ -367,8 +373,7 @@ void exec_instruction(instruction_op op, t_list *params,
   case COPY_STRING: {
     uint32_t tamanio_pagina = solicitar_tamanio_pagina();
     instruction_copy_string(params, ip_memoria, puerto_memoria, logger,
-                            &translate_address, si, di, pid, tamanio_pagina,
-                            NULL, NULL);
+                            &translate_address, si, di, pid, tamanio_pagina);
   }
   default:
     break;
