@@ -83,13 +83,8 @@ void interfaz_stdout(packet_t *res, int socket_kernel) {
 }
 
 void interfaz_stdin(packet_t *res, int socket_kernel) {
-  uint32_t address = packet_read_uint32(res);
   uint32_t pid = packet_read_uint32(res);
-  uint32_t size = packet_read_uint32(res);
-
-  int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
-  if (socket_memoria == -1)
-    exit_client_connection_error(logger);
+  uint32_t splits = packet_read_uint32(res);
 
   printf("Ingrese string a guardar en memoria\n>");
   char *input = NULL;
@@ -97,22 +92,35 @@ void interfaz_stdin(packet_t *res, int socket_kernel) {
   length = getline(&input, &length, stdin);
   input[length - 1] = '\0';
 
-  packet_t *req = packet_create(WRITE_DIR);
-  packet_add_uint32(req, address);
-  packet_add_uint32(req, pid);
-  packet_add_uint32(req, size);
+  buffer_t *buffer_read = buffer_create();
+  buffer_add_string(buffer_read, length, input);
 
-  for (int i = 0; i < size; i++)
-    packet_add_uint8(req, *((uint8_t *)input + i));
+  for (int i = 0; i < splits; i++) {
+    uint32_t address = packet_read_uint32(res);
+    uint32_t size = packet_read_uint32(res);
+    int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
+    if (socket_memoria == -1)
+      exit_client_connection_error(logger);
 
-  packet_send(req, socket_memoria);
-  packet_destroy(req);
+    packet_t *req = packet_create(WRITE_DIR);
+    packet_add_uint32(req, address);
+    packet_add_uint32(req, pid);
+    packet_add_uint32(req, size);
+
+    for (int j = 0; j < size; j++) {
+      uint8_t byte = buffer_read_uint8(buffer_read);
+      log_info(logger, "Se escribio %u en la direccion %u", byte, address + j);
+      packet_add_uint8(req, byte);
+    }
+
+    packet_send(req, socket_memoria);
+    packet_destroy(req);
+  }
+  buffer_destroy(buffer_read);
 
   packet_t *res_kernel = status_pack(OK);
   packet_send(res_kernel, socket_kernel);
   packet_destroy(res_kernel);
-
-  log_info(logger, "Se escribio %s en la direccion %u", input, address);
 }
 
 char *parse_file_name(char *file_name) {

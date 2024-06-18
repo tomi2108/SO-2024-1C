@@ -415,17 +415,40 @@ void instruction_copy_string(t_list *params, char *server_ip, char *server_port,
 void instruction_io_stdin(t_list *params, packet_t *instruction_packet,
                           uint32_t (*translate_address)(uint32_t, uint32_t),
                           uint32_t pid, uint32_t page_size) {
-
   param *first_param = list_get(params, 0);
   param *second_param = list_get(params, 1);
   param *third_param = list_get(params, 2);
-
   packet_add_string(instruction_packet, (char *)first_param->value);
-
-  packet_add_uint32(instruction_packet,
-                    translate_address(*(uint32_t *)second_param->value, pid));
   packet_add_uint32(instruction_packet, pid);
-  packet_add_uint32(instruction_packet, *(uint32_t *)third_param->value);
+  uint32_t size = *(uint32_t *)third_param->value;
+  uint32_t logical_address = *(uint32_t *)second_param->value;
+  uint32_t physical_address = translate_address(logical_address, pid);
+
+  uint32_t page_number = logical_address / page_size;
+  uint32_t offset = logical_address - page_number * page_size;
+  int remaining = size + offset - page_size;
+  uint32_t split = size - remaining;
+  if (remaining > 0)
+    split = size - remaining;
+  uint32_t splits = remaining <= 0 ? 1 : 1 + ceil_div(remaining, page_size);
+  packet_add_uint32(instruction_packet, splits);
+  packet_add_uint32(instruction_packet, physical_address);
+  packet_add_uint32(instruction_packet, split);
+
+  while (remaining > 0) {
+    size = remaining;
+    logical_address += split;
+    physical_address = translate_address(logical_address, pid);
+
+    page_number = logical_address / page_size;
+    offset = logical_address - page_number * page_size;
+    remaining = size + offset - page_size;
+    split = size;
+    if (remaining > 0)
+      split = size - remaining;
+    packet_add_uint32(instruction_packet, physical_address);
+    packet_add_uint32(instruction_packet, split);
+  }
 }
 
 void instruction_io_stdout(t_list *params, packet_t *instruction_packet,

@@ -513,12 +513,17 @@ void response_io_gen_sleep(packet_t *res, char *nombre) {
 void response_io_stdin(packet_t *res, char *nombre) {
   packet_t *io_res = packet_create(REGISTER_IO);
 
-  uint32_t address = packet_read_uint32(res);
   uint32_t pid = packet_read_uint32(res);
-  uint32_t size = packet_read_uint32(res);
-  packet_add_uint32(io_res, address);
   packet_add_uint32(io_res, pid);
-  packet_add_uint32(io_res, size);
+  uint32_t splits = packet_read_uint32(res);
+  packet_add_uint32(io_res, splits);
+
+  for (int i = 0; i < splits; i++) {
+    uint32_t address = packet_read_uint32(res);
+    uint32_t size = packet_read_uint32(res);
+    packet_add_uint32(io_res, address);
+    packet_add_uint32(io_res, size);
+  }
 
   pthread_mutex_lock(&mutex_exec);
   exec->io_packet = io_res;
