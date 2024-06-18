@@ -3,6 +3,8 @@
 #include "io_type.h"
 #include "packet.h"
 
+int ceil_div(uint32_t num, int denom) { return (num + denom - 1) / denom; }
+
 char *instruction_op_to_string(instruction_op op) {
   switch (op) {
   case SET:
@@ -443,8 +445,12 @@ void instruction_io_stdout(t_list *params, packet_t *instruction_packet,
   uint32_t offset = logical_address - page_number * page_size;
   int remaining = size + offset - page_size;
   uint32_t split = size - remaining;
-  packet_add_uint32(instruction_packet, split);
+  if (remaining > 0)
+    split = size - remaining;
+  uint32_t splits = remaining <= 0 ? 1 : 1 + ceil_div(remaining, page_size);
+  packet_add_uint32(instruction_packet, splits);
   packet_add_uint32(instruction_packet, physical_address);
+  packet_add_uint32(instruction_packet, split);
 
   while (remaining > 0) {
     size = remaining;
@@ -457,8 +463,8 @@ void instruction_io_stdout(t_list *params, packet_t *instruction_packet,
     split = size;
     if (remaining > 0)
       split = size - remaining;
-    packet_add_uint32(instruction_packet, split);
     packet_add_uint32(instruction_packet, physical_address);
+    packet_add_uint32(instruction_packet, split);
   }
 }
 

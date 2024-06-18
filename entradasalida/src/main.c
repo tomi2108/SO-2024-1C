@@ -50,40 +50,36 @@ void interfaz_generica(packet_t *res, int socket_kernel) {
 }
 
 void interfaz_stdout(packet_t *res, int socket_kernel) {
-  uint32_t address = packet_read_uint32(res);
   uint32_t pid = packet_read_uint32(res);
-  uint32_t size = packet_read_uint32(res);
+  uint32_t splits = packet_read_uint32(res);
 
-  int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
-  if (socket_memoria == -1)
-    exit_client_connection_error(logger);
+  for (int i = 0; i < splits; i++) {
+    uint32_t address = packet_read_uint32(res);
+    uint32_t size = packet_read_uint32(res);
+    int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
+    if (socket_memoria == -1)
+      exit_client_connection_error(logger);
 
-  packet_t *req = packet_create(READ_DIR);
-  packet_add_uint32(req, address);
-  packet_add_uint32(req, pid);
-  packet_add_uint32(req, size);
+    packet_t *req = packet_create(READ_DIR);
+    packet_add_uint32(req, address);
+    packet_add_uint32(req, pid);
+    packet_add_uint32(req, size);
 
-  packet_send(req, socket_memoria);
-  packet_destroy(req);
-
-  packet_t *res_memoria = packet_recieve(socket_memoria);
-  uint8_t *memory_content = malloc(size + 1);
-  memset(memory_content, 0, size + 1);
-  for (int i = 0; i < size; i++) {
-    uint8_t byte = packet_read_uint8(req);
-    *(memory_content + i) = byte;
+    packet_send(req, socket_memoria);
+    packet_destroy(req);
+    packet_t *res_memoria = packet_recieve(socket_memoria);
+    connection_close(socket_memoria);
+    for (int j = 0; j < size; j++) {
+      uint8_t byte = packet_read_uint8(res_memoria);
+      log_info(logger, "Se leyo de memoria: %u de la direccion %u", byte,
+               address + j);
+    }
+    packet_destroy(res_memoria);
   }
-
-  connection_close(socket_memoria);
-  packet_destroy(res_memoria);
 
   packet_t *res_kernel = status_pack(OK);
   packet_send(res_kernel, socket_kernel);
   packet_destroy(res_kernel);
-
-  log_info(logger, "Se leyo de memoria: %s de la direccion %u", memory_content,
-           address);
-  free(memory_content);
 }
 
 void interfaz_stdin(packet_t *res, int socket_kernel) {

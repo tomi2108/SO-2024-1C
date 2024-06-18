@@ -511,9 +511,6 @@ void response_io_gen_sleep(packet_t *res, char *nombre) {
 }
 
 void response_io_stdin(packet_t *res, char *nombre) {
-  pthread_mutex_lock(&mutex_io_dict);
-  io *interfaz = dictionary_get(io_dict, nombre);
-  pthread_mutex_unlock(&mutex_io_dict);
   packet_t *io_res = packet_create(REGISTER_IO);
 
   uint32_t address = packet_read_uint32(res);
@@ -523,33 +520,32 @@ void response_io_stdin(packet_t *res, char *nombre) {
   packet_add_uint32(io_res, pid);
   packet_add_uint32(io_res, size);
 
-  packet_send(io_res, interfaz->socket);
-  packet_destroy(io_res);
+  pthread_mutex_lock(&mutex_exec);
+  exec->io_packet = io_res;
+  pthread_mutex_unlock(&mutex_exec);
 }
 
 void response_io_stdout(packet_t *res, char *nombre) {
-  pthread_mutex_lock(&mutex_io_dict);
-  io *interfaz = dictionary_get(io_dict, nombre);
-  pthread_mutex_unlock(&mutex_io_dict);
-
   packet_t *io_res = packet_create(REGISTER_IO);
 
-  uint32_t address = packet_read_uint32(res);
   uint32_t pid = packet_read_uint32(res);
-  uint32_t size = packet_read_uint32(res);
-  packet_add_uint32(io_res, address);
   packet_add_uint32(io_res, pid);
-  packet_add_uint32(io_res, size);
+  uint32_t splits = packet_read_uint32(res);
+  packet_add_uint32(io_res, splits);
 
-  packet_send(io_res, interfaz->socket);
-  packet_destroy(io_res);
+  for (int i = 0; i < splits; i++) {
+    uint32_t address = packet_read_uint32(res);
+    uint32_t size = packet_read_uint32(res);
+    packet_add_uint32(io_res, address);
+    packet_add_uint32(io_res, size);
+  }
+
+  pthread_mutex_lock(&mutex_exec);
+  exec->io_packet = io_res;
+  pthread_mutex_unlock(&mutex_exec);
 }
 
 void response_io_fs_create(packet_t *res, char *nombre) {
-  pthread_mutex_lock(&mutex_io_dict);
-  io *interfaz = dictionary_get(io_dict, nombre);
-  pthread_mutex_unlock(&mutex_io_dict);
-
   char *file_name = packet_read_string(res);
   uint32_t pid = packet_read_uint32(res);
 
@@ -560,8 +556,9 @@ void response_io_fs_create(packet_t *res, char *nombre) {
   packet_add_string(io_res, file_name);
   packet_add_uint32(io_res, pid);
 
-  packet_send(io_res, interfaz->socket);
-  packet_destroy(io_res);
+  pthread_mutex_lock(&mutex_exec);
+  exec->io_packet = io_res;
+  pthread_mutex_unlock(&mutex_exec);
 }
 
 process_t *response_resize(packet_t *res, int socket_cpu_dispatch,
@@ -1195,19 +1192,21 @@ void finish_process(uint32_t pid) {
       pthread_mutex_unlock(&mutex_blocked);
 
       pthread_mutex_lock(&io->mutex_queue);
-      process = process_queue_find_and_remove(blocked_queue, pid);
-      process_t *head = queue_peek(blocked_queue);
-      pthread_mutex_unlock(&io->mutex_queue);
+      if (queue_size(blocked_queue) > 0) {
+        process = process_queue_find_and_remove(blocked_queue, pid);
+        process_t *head = queue_peek(blocked_queue);
+        pthread_mutex_unlock(&io->mutex_queue);
 
-      if (process != NULL) {
-        list_iterator_destroy(iterator);
-        list_destroy(ios);
-        if (process->pid != head->pid) {
-          sem_wait(&io->sem_queue_full);
+        if (process != NULL) {
+          list_iterator_destroy(iterator);
+          list_destroy(ios);
+          if (head != NULL && process->pid != head->pid)
+            sem_wait(&io->sem_queue_full);
+          end_process(process, 0);
+          return;
         }
-        end_process(process, 0);
-        return;
       }
+      pthread_mutex_unlock(&io->mutex_queue);
     }
     list_iterator_destroy(iterator);
     list_destroy(ios);
