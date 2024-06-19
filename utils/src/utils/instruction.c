@@ -421,6 +421,7 @@ void instruction_io_stdin(t_list *params, packet_t *instruction_packet,
   packet_add_string(instruction_packet, (char *)first_param->value);
   packet_add_uint32(instruction_packet, pid);
   uint32_t size = *(uint32_t *)third_param->value;
+  packet_add_uint32(instruction_packet, size);
   uint32_t logical_address = *(uint32_t *)second_param->value;
   uint32_t physical_address = translate_address(logical_address, pid);
 

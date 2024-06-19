@@ -84,9 +84,10 @@ void interfaz_stdout(packet_t *res, int socket_kernel) {
 
 void interfaz_stdin(packet_t *res, int socket_kernel) {
   uint32_t pid = packet_read_uint32(res);
+  uint32_t size = packet_read_uint32(res);
   uint32_t splits = packet_read_uint32(res);
 
-  printf("Ingrese string a guardar en memoria\n>");
+  printf("Ingrese string de %u caracteres a guardar en memoria\n>", size);
   char *input = NULL;
   size_t length = 0;
   length = getline(&input, &length, stdin);
@@ -97,7 +98,7 @@ void interfaz_stdin(packet_t *res, int socket_kernel) {
 
   for (int i = 0; i < splits; i++) {
     uint32_t address = packet_read_uint32(res);
-    uint32_t size = packet_read_uint32(res);
+    uint32_t split_size = packet_read_uint32(res);
     int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
     if (socket_memoria == -1)
       exit_client_connection_error(logger);
@@ -105,9 +106,9 @@ void interfaz_stdin(packet_t *res, int socket_kernel) {
     packet_t *req = packet_create(WRITE_DIR);
     packet_add_uint32(req, address);
     packet_add_uint32(req, pid);
-    packet_add_uint32(req, size);
+    packet_add_uint32(req, split_size);
 
-    for (int j = 0; j < size; j++) {
+    for (int j = 0; j < split_size; j++) {
       uint8_t byte = buffer_read_uint8(buffer_read);
       log_info(logger, "Se escribio %u en la direccion %u", byte, address + j);
       packet_add_uint8(req, byte);
