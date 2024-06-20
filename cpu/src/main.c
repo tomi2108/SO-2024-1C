@@ -97,7 +97,8 @@ status_code nro_frame_tlb(uint32_t pid, int page_number,
   }
 }
 
-uint32_t solicitar_marco_de_memoria(uint32_t pid, uint32_t page_number) {
+status_code solicitar_marco_de_memoria(uint32_t pid, uint32_t page_number,
+                                       uint32_t *frame_number) {
   int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
   if (socket_memoria == -1)
     exit_client_connection_error(logger);
@@ -111,11 +112,14 @@ uint32_t solicitar_marco_de_memoria(uint32_t pid, uint32_t page_number) {
   packet_t *res = packet_recieve(socket_memoria);
   connection_close(socket_memoria);
 
-  status_unpack(res);
-  uint32_t frame_number = packet_read_uint32(res);
-
+  status_code status = status_unpack(res);
+  if (status == ERROR) {
+    packet_destroy(res);
+    return ERROR;
+  }
+  *frame_number = packet_read_uint32(res);
   packet_destroy(res);
-  return frame_number;
+  return OK;
 }
 
 uint32_t solicitar_tamanio_pagina() {
@@ -159,7 +163,9 @@ uint32_t calcular_desplazamiento(uint32_t logical_addres,
   return logical_addres - numero_pagina * page_size;
 }
 
-uint32_t translate_address(uint32_t logical_address, uint32_t pid) {
+uint32_t translate_address(uint32_t logical_address, uint32_t pid,
+                           status_code *res) {
+  *res = OK;
   log_info(logger, "Traduciendo dirección lógica %u para el PID %d",
            logical_address, pid);
   uint32_t tamanio_pagina = solicitar_tamanio_pagina();
@@ -174,16 +180,21 @@ uint32_t translate_address(uint32_t logical_address, uint32_t pid) {
     status_code tlb_search_result =
         nro_frame_tlb(pid, page_number, &frame_number);
     if (tlb_search_result == ERROR) {
-      frame_number = solicitar_marco_de_memoria(pid, page_number);
+      *res = solicitar_marco_de_memoria(pid, page_number, &frame_number);
       actualizar_tlb(pid, frame_number, page_number);
     }
   } else
-    frame_number = solicitar_marco_de_memoria(pid, page_number);
+    *res = solicitar_marco_de_memoria(pid, page_number, &frame_number);
 
-  uint32_t physical_address = (frame_number * tamanio_pagina) + offset;
-  log_info(logger, "Dirección fisica %u", physical_address);
+  if (*res == OK) {
+    uint32_t physical_address = (frame_number * tamanio_pagina) + offset;
+    log_info(logger, "Dirección fisica %u", physical_address);
+    return physical_address;
+  }
 
-  return physical_address;
+  log_error(logger, "Desalojando proceso %u por acceso indebido a memoria",
+            pid);
+  return 0;
 }
 
 char *request_fetch_instruction(process_t process) {
@@ -301,8 +312,9 @@ instruction_op decode_instruction(char *instruction, t_list *params) {
   return op;
 }
 
-void exec_instruction(instruction_op op, t_list *params,
-                      packet_t *instruction_packet, uint32_t pid) {
+status_code exec_instruction(instruction_op op, t_list *params,
+                             packet_t *instruction_packet, uint32_t pid) {
+  status_code status = OK;
   switch (op) {
   case SET:
     instruction_set(params);
@@ -321,14 +333,14 @@ void exec_instruction(instruction_op op, t_list *params,
     break;
   case MOV_IN: {
     uint32_t tamanio_pagina = solicitar_tamanio_pagina();
-    instruction_mov_in(params, logger, &translate_address, pid, tamanio_pagina,
-                       ip_memoria, puerto_memoria);
+    status = instruction_mov_in(params, logger, &translate_address, pid,
+                                tamanio_pagina, ip_memoria, puerto_memoria);
     break;
   }
   case MOV_OUT: {
     uint32_t tamanio_pagina = solicitar_tamanio_pagina();
-    instruction_mov_out(params, logger, &translate_address, pid, tamanio_pagina,
-                        ip_memoria, puerto_memoria);
+    status = instruction_mov_out(params, logger, &translate_address, pid,
+                                 tamanio_pagina, ip_memoria, puerto_memoria);
     break;
   }
   case RESIZE:
@@ -336,14 +348,14 @@ void exec_instruction(instruction_op op, t_list *params,
     break;
   case IO_STDIN_READ: {
     uint32_t tamanio_pagina = solicitar_tamanio_pagina();
-    instruction_io_stdin(params, instruction_packet, &translate_address, pid,
-                         tamanio_pagina);
+    status = instruction_io_stdin(params, instruction_packet,
+                                  &translate_address, pid, tamanio_pagina);
     break;
   }
   case IO_STDOUT_WRITE: {
     uint32_t tamanio_pagina = solicitar_tamanio_pagina();
-    instruction_io_stdout(params, instruction_packet, &translate_address, pid,
-                          tamanio_pagina);
+    status = instruction_io_stdout(params, instruction_packet,
+                                   &translate_address, pid, tamanio_pagina);
     break;
   }
   case IO_FS_CREATE:
@@ -372,12 +384,15 @@ void exec_instruction(instruction_op op, t_list *params,
     break;
   case COPY_STRING: {
     uint32_t tamanio_pagina = solicitar_tamanio_pagina();
-    instruction_copy_string(params, ip_memoria, puerto_memoria, logger,
-                            &translate_address, si, di, pid, tamanio_pagina);
-  }
-  default:
+    status = instruction_copy_string(params, ip_memoria, puerto_memoria, logger,
+                                     &translate_address, si, di, pid,
+                                     tamanio_pagina);
     break;
   }
+  default:
+    status = ERROR;
+  }
+  return status;
 }
 
 void free_param(void *p) {
@@ -445,10 +460,16 @@ void response_exec_process(packet_t *req, int client_socket) {
     packet_add(packet, &operation, sizeof(instruction_op));
 
     log_info(logger, "PID: %u - Ejecutando: %s", process.pid, instruction);
-    exec_instruction(operation, params, packet, process.pid);
+    status_code exec_status =
+        exec_instruction(operation, params, packet, process.pid);
     list_destroy_and_destroy_elements(params, &free_param);
 
-    packet_send(packet, client_socket);
+    if (exec_status == OK) {
+      packet_send(packet, client_socket);
+    } else if (exec_status == ERROR) {
+      sem_post(&sem_process_interrupt);
+      dealloc = 1;
+    }
     packet_destroy(packet);
 
     // check interrupt

@@ -129,15 +129,21 @@ void instruction_io_gen_sleep(t_list *params, packet_t *instruction_packet) {
   packet_add_uint32(instruction_packet, *(uint32_t *)second_param->value);
 }
 
-void instruction_mov_in(t_list *params, t_log *logger,
-                        uint32_t (*translate_address)(uint32_t, uint32_t),
-                        uint32_t pid, uint32_t page_size, char *server_ip,
-                        char *server_port) {
+status_code instruction_mov_in(t_list *params, t_log *logger,
+                               uint32_t (*translate_address)(uint32_t, uint32_t,
+                                                             status_code *),
+                               uint32_t pid, uint32_t page_size,
+                               char *server_ip, char *server_port) {
   param *first_param = list_get(params, 0);
   param *second_param = list_get(params, 1);
 
   uint32_t logical_address = *(uint32_t *)second_param->value;
-  uint32_t physical_address = translate_address(logical_address, pid);
+  status_code res_translate = OK;
+  uint32_t physical_address =
+      translate_address(logical_address, pid, &res_translate);
+  if (res_translate == ERROR)
+    return ERROR;
+
   buffer_t *read_buffer = buffer_create();
 
   uint32_t size = first_param->type == EXTENDED_REGISTER ? 4 : 1;
@@ -170,7 +176,13 @@ void instruction_mov_in(t_list *params, t_log *logger,
   while (remaining > 0) {
     size = remaining;
     logical_address += split;
-    physical_address = translate_address(logical_address, pid);
+
+    res_translate = OK;
+    physical_address = translate_address(logical_address, pid, &res_translate);
+    if (res_translate == ERROR) {
+      buffer_destroy(read_buffer);
+      return ERROR;
+    }
 
     page_number = logical_address / page_size;
     offset = logical_address - page_number * page_size;
@@ -204,12 +216,13 @@ void instruction_mov_in(t_list *params, t_log *logger,
   }
 
   buffer_destroy(read_buffer);
+  return OK;
 }
 
-void instruction_mov_out(t_list *params, t_log *logger,
-                         uint32_t (*translate_address)(uint32_t, uint32_t),
-                         uint32_t pid, uint32_t page_size, char *server_ip,
-                         char *server_port) {
+status_code instruction_mov_out(
+    t_list *params, t_log *logger,
+    uint32_t (*translate_address)(uint32_t, uint32_t, status_code *),
+    uint32_t pid, uint32_t page_size, char *server_ip, char *server_port) {
   param *first_param = list_get(params, 0);
   param *second_param = list_get(params, 1);
   uint32_t logical_address = *(uint32_t *)first_param->value;
@@ -222,7 +235,13 @@ void instruction_mov_out(t_list *params, t_log *logger,
     buffer_add_uint8(write_buffer, write_value);
   }
 
-  uint32_t physical_address = translate_address(logical_address, pid);
+  status_code res_translate = OK;
+  uint32_t physical_address =
+      translate_address(logical_address, pid, &res_translate);
+  if (res_translate == ERROR) {
+    buffer_destroy(write_buffer);
+    return ERROR;
+  }
 
   uint32_t page_number = logical_address / page_size;
   uint32_t offset = logical_address - page_number * page_size;
@@ -250,7 +269,12 @@ void instruction_mov_out(t_list *params, t_log *logger,
   while (remaining > 0) {
     size = remaining;
     logical_address += split;
-    physical_address = translate_address(logical_address, pid);
+    res_translate = OK;
+    physical_address = translate_address(logical_address, pid, &res_translate);
+    if (res_translate == ERROR) {
+      buffer_destroy(write_buffer);
+      return ERROR;
+    }
 
     page_number = logical_address / page_size;
     offset = logical_address - page_number * page_size;
@@ -276,6 +300,7 @@ void instruction_mov_out(t_list *params, t_log *logger,
     connection_close(client_socket);
   }
   buffer_destroy(write_buffer);
+  return OK;
 }
 
 void instruction_resize(t_list *params, packet_t *instruction_packet,
@@ -286,18 +311,25 @@ void instruction_resize(t_list *params, packet_t *instruction_packet,
   packet_add_uint32(instruction_packet, *(uint32_t *)first_param->value);
 }
 
-void instruction_copy_string(t_list *params, char *server_ip, char *server_port,
-                             t_log *logger,
-                             uint32_t (*translate_address)(uint32_t, uint32_t),
-                             uint32_t si, uint32_t di, uint32_t pid,
-                             uint32_t page_size) {
+status_code instruction_copy_string(
+    t_list *params, char *server_ip, char *server_port, t_log *logger,
+    uint32_t (*translate_address)(uint32_t, uint32_t, status_code *),
+    uint32_t si, uint32_t di, uint32_t pid, uint32_t page_size) {
   param *first_param = list_get(params, 0);
   uint32_t size = *(uint32_t *)first_param->value;
 
   uint32_t logical_address_si = si;
   uint32_t logical_address_di = di;
-  uint32_t physical_address_si = translate_address(logical_address_si, pid);
-  uint32_t physical_address_di = translate_address(logical_address_di, pid);
+  status_code res_translate = OK;
+  uint32_t physical_address_si =
+      translate_address(logical_address_si, pid, &res_translate);
+  if (res_translate == ERROR)
+    return ERROR;
+  res_translate = OK;
+  uint32_t physical_address_di =
+      translate_address(logical_address_di, pid, &res_translate);
+  if (res_translate == ERROR)
+    return ERROR;
 
   buffer_t *buffer = buffer_create();
 
@@ -329,7 +361,13 @@ void instruction_copy_string(t_list *params, char *server_ip, char *server_port,
   while (remaining > 0) {
     size = remaining;
     logical_address_si += split;
-    physical_address_si = translate_address(logical_address_si, pid);
+    res_translate = OK;
+    physical_address_si =
+        translate_address(logical_address_si, pid, &res_translate);
+    if (res_translate == ERROR) {
+      buffer_destroy(buffer);
+      return ERROR;
+    }
 
     page_number = logical_address_si / page_size;
     offset = logical_address_si - page_number * page_size;
@@ -384,7 +422,13 @@ void instruction_copy_string(t_list *params, char *server_ip, char *server_port,
   while (remaining > 0) {
     size = remaining;
     logical_address_di += split;
-    physical_address_di = translate_address(logical_address_di, pid);
+    res_translate = OK;
+    physical_address_di =
+        translate_address(logical_address_di, pid, &res_translate);
+    if (res_translate == ERROR) {
+      buffer_destroy(buffer);
+      return ERROR;
+    }
 
     page_number = logical_address_di / page_size;
     offset = logical_address_di - page_number * page_size;
@@ -410,11 +454,14 @@ void instruction_copy_string(t_list *params, char *server_ip, char *server_port,
     connection_close(client_socket);
   }
   buffer_destroy(buffer);
+  return OK;
 }
 
-void instruction_io_stdin(t_list *params, packet_t *instruction_packet,
-                          uint32_t (*translate_address)(uint32_t, uint32_t),
-                          uint32_t pid, uint32_t page_size) {
+status_code instruction_io_stdin(t_list *params, packet_t *instruction_packet,
+                                 uint32_t (*translate_address)(uint32_t,
+                                                               uint32_t,
+                                                               status_code *),
+                                 uint32_t pid, uint32_t page_size) {
   param *first_param = list_get(params, 0);
   param *second_param = list_get(params, 1);
   param *third_param = list_get(params, 2);
@@ -423,7 +470,11 @@ void instruction_io_stdin(t_list *params, packet_t *instruction_packet,
   uint32_t size = *(uint32_t *)third_param->value;
   packet_add_uint32(instruction_packet, size);
   uint32_t logical_address = *(uint32_t *)second_param->value;
-  uint32_t physical_address = translate_address(logical_address, pid);
+  status_code res_translate = OK;
+  uint32_t physical_address =
+      translate_address(logical_address, pid, &res_translate);
+  if (res_translate == ERROR)
+    return ERROR;
 
   uint32_t page_number = logical_address / page_size;
   uint32_t offset = logical_address - page_number * page_size;
@@ -439,7 +490,10 @@ void instruction_io_stdin(t_list *params, packet_t *instruction_packet,
   while (remaining > 0) {
     size = remaining;
     logical_address += split;
-    physical_address = translate_address(logical_address, pid);
+    res_translate = OK;
+    physical_address = translate_address(logical_address, pid, &res_translate);
+    if (res_translate == ERROR)
+      return ERROR;
 
     page_number = logical_address / page_size;
     offset = logical_address - page_number * page_size;
@@ -450,11 +504,14 @@ void instruction_io_stdin(t_list *params, packet_t *instruction_packet,
     packet_add_uint32(instruction_packet, physical_address);
     packet_add_uint32(instruction_packet, split);
   }
+  return OK;
 }
 
-void instruction_io_stdout(t_list *params, packet_t *instruction_packet,
-                           uint32_t (*translate_address)(uint32_t, uint32_t),
-                           uint32_t pid, uint32_t page_size) {
+status_code instruction_io_stdout(t_list *params, packet_t *instruction_packet,
+                                  uint32_t (*translate_address)(uint32_t,
+                                                                uint32_t,
+                                                                status_code *),
+                                  uint32_t pid, uint32_t page_size) {
   param *first_param = list_get(params, 0);
   param *second_param = list_get(params, 1);
   param *third_param = list_get(params, 2);
@@ -463,7 +520,11 @@ void instruction_io_stdout(t_list *params, packet_t *instruction_packet,
 
   uint32_t size = *(uint32_t *)third_param->value;
   uint32_t logical_address = *(uint32_t *)second_param->value;
-  uint32_t physical_address = translate_address(logical_address, pid);
+  status_code res_translate = OK;
+  uint32_t physical_address =
+      translate_address(logical_address, pid, &res_translate);
+  if (res_translate == ERROR)
+    return ERROR;
 
   uint32_t page_number = logical_address / page_size;
   uint32_t offset = logical_address - page_number * page_size;
@@ -479,7 +540,10 @@ void instruction_io_stdout(t_list *params, packet_t *instruction_packet,
   while (remaining > 0) {
     size = remaining;
     logical_address += split;
-    physical_address = translate_address(logical_address, pid);
+    res_translate = OK;
+    physical_address = translate_address(logical_address, pid, &res_translate);
+    if (res_translate == ERROR)
+      return ERROR;
 
     page_number = logical_address / page_size;
     offset = logical_address - page_number * page_size;
@@ -490,6 +554,7 @@ void instruction_io_stdout(t_list *params, packet_t *instruction_packet,
     packet_add_uint32(instruction_packet, physical_address);
     packet_add_uint32(instruction_packet, split);
   }
+  return OK;
 }
 
 void instruction_io_fs_create(t_list *params, packet_t *instruction_packet,
