@@ -414,9 +414,23 @@ void end_process(process_t *process, int was_new) {
     sem_post(&sem_ready_empty);
 }
 
+void disconnect_io() {}
+
 void response_register_io(packet_t *request, int io_socket) {
   char *nombre = packet_read_string(request);
   char *tipo_interfaz = packet_read_string(request);
+
+  pthread_mutex_lock(&mutex_io_dict);
+  io *existing_io = dictionary_get(io_dict, nombre);
+  pthread_mutex_unlock(&mutex_io_dict);
+
+  if (existing_io != NULL) {
+    log_warning(logger, "Ya existe una io con el nombre %s", nombre);
+    packet_t * disconnect_req = status_pack(ERROR);
+    packet_send(disconnect_req, io_socket);
+    packet_destroy(disconnect_req);
+    return;
+  }
 
   log_info(logger, "Se conecto una interfaz de tipo %s y nombre %s",
            tipo_interfaz, nombre);
@@ -485,7 +499,7 @@ void response_register_io(packet_t *request, int io_socket) {
                blocked_process->pid, nombre);
     }
   }
-  log_warning(logger, "La I/O %s fue desconecatda", nombre);
+  log_warning(logger, "La I/O %s fue desconectada", nombre);
 
   pthread_mutex_lock(&mutex_blocked);
   t_queue *blocked_queue = list_get(blocked, interfaz->queue_index);
@@ -495,8 +509,7 @@ void response_register_io(packet_t *request, int io_socket) {
   while (queue_size(blocked_queue) > 0) {
     process_t *blocked_process = queue_pop(blocked_queue);
     log_error(logger,
-              "Finaliza el proceso %u porque la I/O %s no es compatible o "
-              "no esta conectada",
+              "Finaliza el proceso %u porque la I/O %s fue desconectada",
               blocked_process->pid, nombre);
     end_process(blocked_process, 0);
   }
@@ -524,6 +537,7 @@ void *atender_cliente(void *args) {
   }
   packet_destroy(request);
   free(args);
+  connection_close(client_socket);
   return EXIT_SUCCESS;
 }
 

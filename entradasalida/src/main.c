@@ -574,6 +574,13 @@ int main(int argc, char *argv[]) {
   request_register_io(socket_kernel);
   while (1) {
     packet_t *res = packet_recieve(socket_kernel);
+    if (res->type == STATUS) {
+      status_code status = status_unpack(res);
+      if (status == ERROR) {
+        log_error(logger, "La conexion fue rechazada");
+        break;
+      }
+    }
     if (strcmp(io_type, "GENERICA") == 0) {
       interfaz_generica(res, socket_kernel);
     } else if (strcmp(io_type, "STDIN") == 0) {
