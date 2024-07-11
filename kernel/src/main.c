@@ -266,6 +266,8 @@ void *unblock_process_resource(void *arg) {
   pthread_mutex_unlock(&r.mutex_queue);
 
   send_to_ready(unblocked_process);
+  log_info(logger, "Se envia el proceso %u de BLOCKED %s a READY",
+           unblocked_process->pid, resource_name);
   free(resource_name);
   uint32_t *pid = malloc(sizeof(uint32_t));
   *pid = unblocked_process->pid;
@@ -472,14 +474,15 @@ void response_register_io(packet_t *request, int io_socket) {
 
       if (strcmp(algoritmo_planificacion, "VRR") == 0) {
         send_to_vrr_aux(blocked_process);
-        log_info(logger,
-                 "Se envia el proceso %u de BLOCKED a la cola auxiliar de VRR",
-                 blocked_process->pid);
+        log_info(
+            logger,
+            "Se envia el proceso %u de BLOCKED %s a la cola auxiliar de VRR",
+            blocked_process->pid, nombre);
         continue;
       }
       send_to_ready(blocked_process);
-      log_info(logger, "Se envia el proceso %u de BLOCKED a READY",
-               blocked_process->pid);
+      log_info(logger, "Se envia el proceso %u de BLOCKED %s a READY",
+               blocked_process->pid, nombre);
     }
   }
   log_warning(logger, "La I/O %s fue desconecatda", nombre);
@@ -566,8 +569,8 @@ void block_process_io(char *io_name, process_t *process) {
   pthread_mutex_unlock(&interfaz->mutex_queue);
 
   sem_post(&interfaz->sem_queue_full);
-  log_info(logger, "Se envia el proceso %u a BLOCKED de la interfaz %s",
-           process->pid, io_name);
+  log_info(logger, "Se envia el proceso %u a BLOCKED %s", process->pid,
+           io_name);
 }
 
 void block_process_resource(char *resource_name, process_t *process) {
@@ -584,6 +587,7 @@ void block_process_resource(char *resource_name, process_t *process) {
   pthread_mutex_lock(&r.mutex_queue);
   queue_push(blocked_queue, process);
   pthread_mutex_unlock(&r.mutex_queue);
+  log_info(logger, "Se envia el proceso %u a BLOCKED %s", process->pid, r.name);
 }
 
 process_t *request_cpu_interrupt(int interrupt, int socket_cpu_dispatch) {
