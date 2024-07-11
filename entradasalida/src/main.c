@@ -2,6 +2,7 @@
 #include <commons/config.h>
 #include <commons/log.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -36,6 +37,18 @@ char *puerto_memoria;
 char *path_base_dialfs;
 int block_size;
 int block_count;
+int socket_kernel;
+
+void clean_up() {
+  connection_close(socket_kernel);
+  config_destroy(config);
+  log_destroy(logger);
+}
+
+void sigint_handler() {
+  clean_up();
+  exit(EXIT_FAILURE);
+}
 
 int ceil_div(uint32_t num, int denom) { return (num + denom - 1) / denom; }
 
@@ -396,8 +409,8 @@ int can_file_extend(t_bitarray *bitmap, char *file_name, int blocks_to_extend) {
 
 void fs_truncate(char *file_name, packet_t *req) {
   uint32_t size = packet_read_uint32(req);
-  // if (size == 0)
-  //   return fs_delete(file_name); ????? podria ser una alternativa....
+  if (size == 0)
+    return fs_delete(file_name);
   uint32_t file_size = get_metadata(file_name, FILE_SIZE_KEY);
   uint32_t file_blocks = file_size / block_size;
   uint32_t initial_block = get_metadata(file_name, INITIAL_BLOCK_KEY);
@@ -483,7 +496,6 @@ void request_register_io(int client_socket) {
   packet_add_string(request, name);
   packet_add_string(request, io_type);
   packet_send(request, client_socket);
-  ;
   packet_destroy(request);
 }
 
@@ -521,6 +533,10 @@ void print_blocks() {
   }
 }
 int main(int argc, char *argv[]) {
+  struct sigaction sa;
+  sa.sa_handler = &sigint_handler;
+  sa.sa_flags = SA_RESTART;
+  sigaction(SIGINT, &sa, NULL);
 
   logger =
       log_create("entradasalida.log", "ENTRADA/SALIDA", 1, LOG_LEVEL_DEBUG);
@@ -551,7 +567,7 @@ int main(int argc, char *argv[]) {
   block_size = config_get_int_value(config, "BLOCK_SIZE");
   block_count = config_get_int_value(config, "BLOCK_COUNT");
 
-  int socket_kernel = connection_create_client(ip_kernel, puerto_kernel);
+  socket_kernel = connection_create_client(ip_kernel, puerto_kernel);
   request_register_io(socket_kernel);
   while (1) {
     packet_t *res = packet_recieve(socket_kernel);
@@ -565,9 +581,6 @@ int main(int argc, char *argv[]) {
       interfaz_dialfs(res, socket_kernel);
     packet_destroy(res);
   }
-  connection_close(socket_kernel);
-
-  log_destroy(logger);
-  config_destroy(config);
+  clean_up();
   return EXIT_SUCCESS;
 }

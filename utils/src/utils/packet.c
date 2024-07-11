@@ -88,12 +88,12 @@ packet_t *packet_recieve(int socket) {
 
   int err_type =
       recv(socket, &(packet->type), sizeof(packet_type), MSG_WAITALL);
-  if (err_type == -1)
+  if (err_type == 0)
     return NULL;
 
   int err_size =
       recv(socket, &(packet->buffer->size), sizeof(uint32_t), MSG_WAITALL);
-  if (err_size == -1)
+  if (err_size == 0)
     return NULL;
 
   if (packet->buffer->size > 0) {
@@ -103,7 +103,7 @@ packet_t *packet_recieve(int socket) {
 
     int err_stream =
         recv(socket, packet->buffer->stream, packet->buffer->size, MSG_WAITALL);
-    if (err_stream == -1)
+    if (err_stream == 0)
       return NULL;
   }
   return packet;

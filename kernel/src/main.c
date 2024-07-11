@@ -226,6 +226,46 @@ void send_vrr_aux_to_exec(int socket_cpu_dispatch) {
   pthread_mutex_unlock(&mutex_exec);
 }
 
+void free_process_resources(uint32_t pid) {
+  int key_length = snprintf(NULL, 0, "%d", pid);
+  char *key = malloc(key_length + 1);
+  snprintf(key, key_length + 1, "%d", pid);
+
+  pthread_mutex_lock(&mutex_resource_dict);
+  int *taken_resources = dictionary_get(resource_dict, key);
+  pthread_mutex_unlock(&mutex_resource_dict);
+
+  for (int i = 0; i < num_resources; i++) {
+    int taken_instances = taken_resources[i];
+    pthread_mutex_lock(&mutex_resources_array);
+    resources_array[i].instances += taken_instances;
+    pthread_mutex_unlock(&mutex_resources_array);
+  }
+  dictionary_remove_and_destroy(resource_dict, key, &free);
+  free(key);
+}
+
+void free_process(uint32_t pid) {
+  free_process_resources(pid);
+  int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
+  packet_t *free_req = packet_create(FREE_PROCESS);
+  packet_add_uint32(free_req, pid);
+  packet_send(free_req, socket_memoria);
+  packet_destroy(free_req);
+}
+
+void end_process(process_t *process, int was_new) {
+  free_process(process->pid);
+  log_info(logger, "Finaliza el proceso %u", process->pid);
+
+  pthread_mutex_lock(&mutex_finished);
+  list_add(finished, process);
+  pthread_mutex_unlock(&mutex_finished);
+
+  if (!was_new)
+    sem_post(&sem_ready_empty);
+}
+
 void response_register_io(packet_t *request, int io_socket) {
   char *nombre = packet_read_string(request);
   char *tipo_interfaz = packet_read_string(request);
@@ -262,6 +302,9 @@ void response_register_io(packet_t *request, int io_socket) {
     head->io_packet = NULL;
 
     packet_t *packet = packet_recieve(interfaz->socket);
+    // io disconnected
+    if (packet == NULL)
+      break;
 
     pthread_mutex_lock(&interfaz->mutex_queue);
     int size = queue_size(io_queue);
@@ -270,6 +313,7 @@ void response_register_io(packet_t *request, int io_socket) {
       process = queue_peek(io_queue);
     pthread_mutex_unlock(&interfaz->mutex_queue);
 
+    // process terminated
     if (process == NULL || head->pid != process->pid)
       continue;
 
@@ -292,6 +336,23 @@ void response_register_io(packet_t *request, int io_socket) {
                blocked_process->pid);
     }
   }
+  log_warning(logger, "La I/O %s fue desconecatda", nombre);
+
+  pthread_mutex_lock(&mutex_blocked);
+  t_queue *blocked_queue = list_get(blocked, interfaz->queue_index);
+  pthread_mutex_unlock(&mutex_blocked);
+
+  pthread_mutex_lock(&interfaz->mutex_queue);
+  while (queue_size(blocked_queue) > 0) {
+    process_t *blocked_process = queue_pop(blocked_queue);
+    log_error(logger,
+              "Finaliza el proceso %d porque la I/O %s no es compatible o "
+              "no esta conectada",
+              blocked_process->pid, nombre);
+    end_process(blocked_process, 0);
+  }
+  pthread_mutex_unlock(&interfaz->mutex_queue);
+
   pthread_mutex_lock(&mutex_blocked);
   list_remove(blocked, interfaz->queue_index);
   pthread_mutex_unlock(&mutex_blocked);
@@ -299,9 +360,6 @@ void response_register_io(packet_t *request, int io_socket) {
   pthread_mutex_lock(&mutex_io_dict);
   dictionary_remove_and_destroy(io_dict, nombre, &free_io);
   pthread_mutex_unlock(&mutex_io_dict);
-
-  free(nombre);
-  free_io(interfaz);
 }
 
 void *atender_cliente(void *args) {
@@ -318,34 +376,6 @@ void *atender_cliente(void *args) {
   packet_destroy(request);
   free(args);
   return EXIT_SUCCESS;
-}
-
-void free_process_resources(uint32_t pid) {
-  int key_length = snprintf(NULL, 0, "%d", pid);
-  char *key = malloc(key_length + 1);
-  snprintf(key, key_length + 1, "%d", pid);
-
-  pthread_mutex_lock(&mutex_resource_dict);
-  int *taken_resources = dictionary_get(resource_dict, key);
-  pthread_mutex_unlock(&mutex_resource_dict);
-
-  for (int i = 0; i < num_resources; i++) {
-    int taken_instances = taken_resources[i];
-    pthread_mutex_lock(&mutex_resources_array);
-    resources_array[i].instances += taken_instances;
-    pthread_mutex_unlock(&mutex_resources_array);
-  }
-  dictionary_remove_and_destroy(resource_dict, key, &free);
-  free(key);
-}
-
-void free_process(uint32_t pid) {
-  free_process_resources(pid);
-  int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
-  packet_t *free_req = packet_create(FREE_PROCESS);
-  packet_add_uint32(free_req, pid);
-  packet_send(free_req, socket_memoria);
-  packet_destroy(free_req);
 }
 
 void init_process(char *path) {
@@ -583,6 +613,7 @@ process_t *response_resize(packet_t *res, int socket_cpu_dispatch,
 
   packet_t *res_memoria = packet_recieve(client_socket);
   if (res_memoria->type == OUT_OF_MEMORY) {
+    log_error(logger, "Finaliza el proceso %d por falta de memoria", pid);
     *exit = FINISH;
     packet_destroy(res_memoria);
     return request_cpu_interrupt(1, socket_cpu_dispatch);
@@ -676,6 +707,7 @@ int is_io_compatible(char *name, instruction_op op) {
     pthread_mutex_unlock(&mutex_io_dict);
     return io_type_is_compatible(io->type, op);
   }
+  pthread_mutex_unlock(&mutex_io_dict);
   return 0;
 }
 
@@ -719,6 +751,12 @@ process_t *wait_process_exec(int socket_cpu_dispatch, interrupt *exit,
           response_io_call(op, res, socket_cpu_dispatch, name);
       if (exit_process == NULL) {
         *exit = FINISH;
+        pthread_mutex_lock(&mutex_exec);
+        log_error(logger,
+                  "Finaliza el proceso %d porque la I/O %s no es compatible o "
+                  "no esta conectada",
+                  exec->pid, *name);
+        pthread_mutex_unlock(&mutex_exec);
         packet_destroy(res);
         return request_cpu_interrupt(1, socket_cpu_dispatch);
       }
@@ -806,18 +844,6 @@ void empty_exec() {
   exec = NULL;
   pthread_mutex_unlock(&mutex_exec);
   sem_post(&sem_exec_empty);
-}
-
-void end_process(process_t *process, int was_new) {
-  free_process(process->pid);
-  log_info(logger, "Finaliza el proceso %u", process->pid);
-
-  pthread_mutex_lock(&mutex_finished);
-  list_add(finished, process);
-  pthread_mutex_unlock(&mutex_finished);
-
-  if (!was_new)
-    sem_post(&sem_ready_empty);
 }
 
 void *quantum_timer(void *arg) {
