@@ -229,9 +229,51 @@ void send_vrr_aux_to_exec() {
   pthread_mutex_unlock(&mutex_exec);
 }
 
+int get_resource_id(char *resource) {
+  int resource_i = -1;
+  for (int i = 0; i < num_resources; i++) {
+    pthread_mutex_lock(&mutex_resources_array);
+    if (strcmp(resources_array[i].name, resource) == 0) {
+      pthread_mutex_unlock(&mutex_resources_array);
+      return i;
+    }
+    pthread_mutex_unlock(&mutex_resources_array);
+  }
+
+  return resource_i;
+}
+
+void *unblock_process_resource(void *arg) {
+  char *resource_name = (char *)arg;
+  int r_id = get_resource_id(resource_name);
+
+  pthread_mutex_lock(&mutex_resources_array);
+  resource r = resources_array[r_id];
+  pthread_mutex_unlock(&mutex_resources_array);
+
+  int blocked_queue_index = r.queue_index;
+  pthread_mutex_lock(&mutex_blocked);
+  t_queue *blocked_queue = list_get(blocked, blocked_queue_index);
+  pthread_mutex_unlock(&mutex_blocked);
+
+  pthread_mutex_lock(&r.mutex_queue);
+  if (queue_size(blocked_queue) == 0) {
+    pthread_mutex_unlock(&r.mutex_queue);
+    free(resource_name);
+    return NULL;
+  }
+  process_t *unblocked_process = queue_pop(blocked_queue);
+  pthread_mutex_unlock(&r.mutex_queue);
+
+  send_to_ready(unblocked_process);
+  free(resource_name);
+  uint32_t *pid = malloc(sizeof(uint32_t));
+  *pid = unblocked_process->pid;
+  return pid;
+}
+
 void free_process_resources(uint32_t pid) {
   char *key = ui32tostr(pid);
-
   pthread_mutex_lock(&mutex_resource_dict);
   int *taken_resources = dictionary_get(resource_dict, key);
   pthread_mutex_unlock(&mutex_resource_dict);
@@ -240,6 +282,27 @@ void free_process_resources(uint32_t pid) {
     int taken_instances = taken_resources[i];
     pthread_mutex_lock(&mutex_resources_array);
     resources_array[i].instances += taken_instances;
+    while (taken_instances > 0 && resources_array[i].instances >= 0) {
+      int name_length = strlen(resources_array[i].name);
+      int name_size = sizeof(char) * (name_length + 1);
+      char *name = malloc(name_size);
+      memcpy(name, resources_array[i].name, name_size);
+      pthread_mutex_unlock(&mutex_resources_array);
+      uint32_t *unblocked_pid = unblock_process_resource(name);
+      pthread_mutex_lock(&mutex_resources_array);
+      if (unblocked_pid == NULL)
+        break;
+      char *unblocked_key = ui32tostr(*unblocked_pid);
+      free(unblocked_pid);
+      pthread_mutex_lock(&mutex_resource_dict);
+      int *unblocked_taken_resources =
+          dictionary_get(resource_dict, unblocked_key);
+      pthread_mutex_unlock(&mutex_resource_dict);
+      unblocked_taken_resources[i]++;
+      resources_array[i].instances--;
+      taken_instances--;
+      free(unblocked_key);
+    }
     pthread_mutex_unlock(&mutex_resources_array);
   }
   dictionary_remove_and_destroy(resource_dict, key, &free);
@@ -489,20 +552,6 @@ void init_process(char *path) {
   }
 };
 
-int get_resource_id(char *resource) {
-  int resource_i = -1;
-  for (int i = 0; i < num_resources; i++) {
-    pthread_mutex_lock(&mutex_resources_array);
-    if (strcmp(resources_array[i].name, resource) == 0) {
-      pthread_mutex_unlock(&mutex_resources_array);
-      return i;
-    }
-    pthread_mutex_unlock(&mutex_resources_array);
-  }
-
-  return resource_i;
-}
-
 void block_process_io(char *io_name, process_t *process) {
   pthread_mutex_lock(&mutex_io_dict);
   io *interfaz = dictionary_get(io_dict, io_name);
@@ -535,28 +584,6 @@ void block_process_resource(char *resource_name, process_t *process) {
   pthread_mutex_lock(&r.mutex_queue);
   queue_push(blocked_queue, process);
   pthread_mutex_unlock(&r.mutex_queue);
-}
-
-void *unblock_process_resource(void *arg) {
-  char *resource_name = (char *)arg;
-  int r_id = get_resource_id(resource_name);
-
-  pthread_mutex_lock(&mutex_resources_array);
-  resource r = resources_array[r_id];
-  pthread_mutex_unlock(&mutex_resources_array);
-
-  int blocked_queue_index = r.queue_index;
-  pthread_mutex_lock(&mutex_blocked);
-  t_queue *blocked_queue = list_get(blocked, blocked_queue_index);
-  pthread_mutex_unlock(&mutex_blocked);
-
-  pthread_mutex_lock(&r.mutex_queue);
-  process_t *unblocked_process = queue_pop(blocked_queue);
-  pthread_mutex_unlock(&r.mutex_queue);
-
-  send_to_ready(unblocked_process);
-  free(resource_name);
-  return NULL;
 }
 
 process_t *request_cpu_interrupt(int interrupt, int socket_cpu_dispatch) {
@@ -1332,6 +1359,15 @@ void print_dir(uint32_t dir) {
   log_debug(logger, "Address: %u , Content: %u", dir, byte);
 }
 
+void print_resources() {
+  pthread_mutex_lock(&mutex_resources_array);
+  for (int i = 0; i < num_resources; i++) {
+    resource *r = &resources_array[i];
+    log_debug(logger, "NAME: %s INSTANCES: %d", r->name, r->instances);
+  }
+  pthread_mutex_unlock(&mutex_resources_array);
+}
+
 void exec_command(command_op op, param p) {
   switch (op) {
   case EXEC_SCRIPT:
@@ -1357,6 +1393,9 @@ void exec_command(command_op op, param p) {
     break;
   case PRINT_DIR:
     print_dir(*(uint32_t *)p.value);
+    break;
+  case PRINT_RESOURCES:
+    print_resources();
     break;
   default:
     break;
