@@ -964,15 +964,15 @@ void planificacion_vrr() {
     }
   }
 
-  pthread_mutex_lock(&mutex_exec);
-  exec->quantum = end_timer;
-  pthread_mutex_unlock(&mutex_exec);
+  if (updated_process != NULL)
+    updated_process->quantum = end_timer < 0 ? 0 : end_timer;
 
   block_if_scheduler_off();
   empty_exec();
 
   if (end_timer <= 0 && updated_process == NULL) {
     updated_process = request_cpu_interrupt(1, socket_cpu_dispatch);
+    updated_process->quantum = end_timer < 0 ? 0 : end_timer;
     send_to_ready(updated_process);
     pthread_mutex_lock(&mutex_interrupting);
     interrupting = 0;
