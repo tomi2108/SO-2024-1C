@@ -15,7 +15,9 @@ char *file_read_n_line(FILE *file, int n, int max_line_length) {
   int i = 0;
   while (fgets(line, max_line_length, file)) {
     if (i == n) {
-      line[strlen(line) - 1] = '\0';
+      unsigned long last_index = strlen(line) - 1;
+      if (line[last_index] == '\n')
+        line[last_index] = '\0';
       return line;
     }
     i++;

@@ -255,6 +255,8 @@ uint32_t *is_extended_register(char *token) {
     return &si;
   if (strcmp(token, "DI") == 0)
     return &di;
+  if (strcmp(token, "PC") == 0)
+    return &pc;
   return NULL;
 }
 
@@ -475,8 +477,9 @@ void response_exec_process(packet_t *req, int client_socket) {
     // check interrupt
     sem_wait(&sem_process_interrupt);
     pthread_mutex_lock(&mutex_dealloc);
-    if (dealloc == 1)
+    if (dealloc == 1) {
       interrupted = 1;
+    }
     pthread_mutex_unlock(&mutex_dealloc);
     sem_post(&sem_check_interrupt);
 

@@ -2,13 +2,13 @@
 #include "instruction.h"
 
 io_type io_type_from_string(char *string) {
-  if (strcmp(string, "generica") == 0)
+  if (strcmp(string, "GENERICA") == 0)
     return GEN;
-  if (strcmp(string, "stdin") == 0)
+  if (strcmp(string, "STDIN") == 0)
     return STDIN;
-  if (strcmp(string, "stdout") == 0)
+  if (strcmp(string, "STDOUT") == 0)
     return STDOUT;
-  if (strcmp(string, "dialfs") == 0)
+  if (strcmp(string, "DIALFS") == 0)
     return DIALFS;
   return UNKNOWN_IO;
 }

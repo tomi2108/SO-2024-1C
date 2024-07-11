@@ -27,6 +27,7 @@ t_config *config;
 char *name;
 char *io_type;
 int tiempo_unidad_trabajo_ms;
+int retraso_compactacion;
 
 char *ip_kernel;
 char *puerto_kernel;
@@ -358,6 +359,7 @@ void fs_write(char *file_name, uint32_t pid, packet_t *req) {
 }
 
 void compact(t_bitarray *bitmap) {
+  usleep(1000 * retraso_compactacion);
   int compacts = 0;
   do {
     compacts = 0;
@@ -500,8 +502,8 @@ void request_register_io(int client_socket) {
 }
 
 uint8_t is_io_type_supported() {
-  return strcmp(io_type, "generica") == 0 || strcmp(io_type, "stdin") == 0 ||
-         strcmp(io_type, "stdout") == 0 || strcmp(io_type, "dialfs") == 0;
+  return strcmp(io_type, "GENERICA") == 0 || strcmp(io_type, "STDIN") == 0 ||
+         strcmp(io_type, "STDOUT") == 0 || strcmp(io_type, "DIALFS") == 0;
 }
 
 void print_bitarray(t_bitarray *bitarray) {
@@ -562,6 +564,7 @@ int main(int argc, char *argv[]) {
 
   tiempo_unidad_trabajo_ms =
       config_get_int_value(config, "TIEMPO_UNIDAD_TRABAJO");
+  retraso_compactacion = config_get_int_value(config, "RETRASO_COMPACTACION");
 
   path_base_dialfs = config_get_string_value(config, "PATH_BASE_DIALFS");
   block_size = config_get_int_value(config, "BLOCK_SIZE");
@@ -571,13 +574,13 @@ int main(int argc, char *argv[]) {
   request_register_io(socket_kernel);
   while (1) {
     packet_t *res = packet_recieve(socket_kernel);
-    if (strcmp(io_type, "generica") == 0) {
+    if (strcmp(io_type, "GENERICA") == 0) {
       interfaz_generica(res, socket_kernel);
-    } else if (strcmp(io_type, "stdin") == 0) {
+    } else if (strcmp(io_type, "STDIN") == 0) {
       interfaz_stdin(res, socket_kernel);
-    } else if (strcmp(io_type, "stdout") == 0) {
+    } else if (strcmp(io_type, "STDOUT") == 0) {
       interfaz_stdout(res, socket_kernel);
-    } else if (strcmp(io_type, "dialfs") == 0)
+    } else if (strcmp(io_type, "DIALFS") == 0)
       interfaz_dialfs(res, socket_kernel);
     packet_destroy(res);
   }
