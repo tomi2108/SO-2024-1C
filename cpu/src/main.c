@@ -146,10 +146,25 @@ void actualizar_tlb(uint32_t pid, uint32_t frame_number, int page_number) {
   new_entry->num_marco = frame_number;
 
   if (list_size(tlb) >= cantidad_entradas_tlb) {
-    if (strcmp(algoritmo_tlb, "FIFO") == 0)
-      list_remove_and_destroy_element(tlb, 0, &free);
-    else if (strcmp(algoritmo_tlb, "LRU") == 0)
-      list_remove_and_destroy_element(tlb, 0, &free);
+    if (strcmp(algoritmo_tlb, "FIFO") == 0) {
+      int index_to_remove = 0;
+      t_tlb *entry_to_remove = list_get(tlb, index_to_remove);
+      log_debug(
+          logger,
+          "[TLB] Se reemplaza pagina %d del Pid %d por pagina %d del Pid %d",
+          entry_to_remove->page_number, entry_to_remove->pid,
+          new_entry->page_number, new_entry->pid);
+      list_remove_and_destroy_element(tlb, index_to_remove, &free);
+    } else if (strcmp(algoritmo_tlb, "LRU") == 0) {
+      int index_to_remove = 0;
+      t_tlb *entry_to_remove = list_get(tlb, index_to_remove);
+      log_debug(
+          logger,
+          "[TLB] Se reemplaza pagina %d del Pid %d por pagina %d del Pid %d",
+          entry_to_remove->page_number, entry_to_remove->pid,
+          new_entry->page_number, new_entry->pid);
+      list_remove_and_destroy_element(tlb, index_to_remove, &free);
+    }
   }
   list_add(tlb, new_entry);
 }
@@ -501,6 +516,22 @@ void response_exec_process(packet_t *req, int client_socket) {
   packet_destroy(res);
 }
 
+void print_tlb() {
+  if (cantidad_entradas_tlb == 0) {
+    log_debug(logger, "[TLB] off");
+    return;
+  }
+  if (list_size(tlb) == 0) {
+    log_debug(logger, "[TLB] empty");
+    return;
+  }
+  for (int i = 0; i < list_size(tlb); i++) {
+    t_tlb *entry = list_get(tlb, i);
+    log_debug(logger, "[TLB] Pid: %u, Marco: %d, Pagina: %d", entry->pid,
+              entry->num_marco, entry->page_number);
+  }
+}
+
 void *server_dispatch(void *args) {
   int server_socket = connection_create_server(puerto_dispatch);
   if (server_socket == -1)
@@ -520,6 +551,9 @@ void *server_dispatch(void *args) {
     switch (req->type) {
     case PROCESS:
       response_exec_process(req, client_socket);
+      break;
+    case PRINT_TLB_PACKET:
+      print_tlb();
       break;
     default:
       break;

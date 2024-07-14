@@ -13,6 +13,7 @@ typedef enum {
   PRINT_PROCESSES,
   PRINT_DIR,
   PRINT_RESOURCES,
+  PRINT_TLB,
   UNKNOWN_COMMAND
 } command_op;
 

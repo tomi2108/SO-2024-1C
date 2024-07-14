@@ -19,5 +19,7 @@ command_op command_op_from_string(char *op) {
     return PRINT_DIR;
   if (strcmp(op, "PRINT_RESOURCES") == 0)
     return PRINT_RESOURCES;
+  if (strcmp(op, "PRINT_TLB") == 0)
+    return PRINT_TLB;
   return UNKNOWN_COMMAND;
 }

@@ -426,7 +426,7 @@ void response_register_io(packet_t *request, int io_socket) {
 
   if (existing_io != NULL) {
     log_warning(logger, "Ya existe una io con el nombre %s", nombre);
-    packet_t * disconnect_req = status_pack(ERROR);
+    packet_t *disconnect_req = status_pack(ERROR);
     packet_send(disconnect_req, io_socket);
     packet_destroy(disconnect_req);
     return;
@@ -1386,6 +1386,17 @@ void print_resources() {
   pthread_mutex_unlock(&mutex_resources_array);
 }
 
+void print_tlb() {
+  int socket = connection_create_client(ip_cpu, puerto_cpu_dispatch);
+  if (socket == -1) {
+    log_error(logger, "El cpu esta ocupado, intentar mas tarde");
+    return;
+  }
+  packet_t *req = packet_create(PRINT_TLB_PACKET);
+  packet_send(req, socket);
+  packet_destroy(req);
+}
+
 void exec_command(command_op op, param p) {
   switch (op) {
   case EXEC_SCRIPT:
@@ -1414,6 +1425,9 @@ void exec_command(command_op op, param p) {
     break;
   case PRINT_RESOURCES:
     print_resources();
+    break;
+  case PRINT_TLB:
+    print_tlb();
     break;
   default:
     break;

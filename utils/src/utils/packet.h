@@ -2,10 +2,10 @@
 #define UTILS_PACKET_H_
 
 #include "buffer.h"
+#include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <errno.h>
 #include <sys/socket.h>
 
 typedef enum {
@@ -26,7 +26,8 @@ typedef enum {
   FETCH_FRAME_NUMBER,
   RESPONSE_FRAME_NUMBER,
   TAMANIO_PAGINA_REQUEST,
-  TAMANIO_PAGINA_RESPONSE
+  TAMANIO_PAGINA_RESPONSE,
+  PRINT_TLB_PACKET
 } packet_type;
 
 typedef struct {
