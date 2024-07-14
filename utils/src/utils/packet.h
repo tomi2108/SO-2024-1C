@@ -27,7 +27,7 @@ typedef enum {
   RESPONSE_FRAME_NUMBER,
   TAMANIO_PAGINA_REQUEST,
   TAMANIO_PAGINA_RESPONSE,
-  PRINT_TLB_PACKET
+  PRINT_TLB_PACKET,
 } packet_type;
 
 typedef struct {

@@ -67,6 +67,7 @@ void interfaz_stdout(packet_t *res, int socket_kernel) {
   uint32_t pid = packet_read_uint32(res);
   uint32_t splits = packet_read_uint32(res);
 
+  buffer_t *buffer_write = buffer_create();
   for (int i = 0; i < splits; i++) {
     uint32_t address = packet_read_uint32(res);
     uint32_t size = packet_read_uint32(res);
@@ -81,16 +82,19 @@ void interfaz_stdout(packet_t *res, int socket_kernel) {
 
     packet_send(req, socket_memoria);
     packet_destroy(req);
+
     packet_t *res_memoria = packet_recieve(socket_memoria);
     connection_close(socket_memoria);
     for (int j = 0; j < size; j++) {
       uint8_t byte = packet_read_uint8(res_memoria);
-      log_info(logger, "Se leyo de memoria: %u de la direccion %u", byte,
-               address + j);
+      buffer_add_uint8(buffer_write, byte);
     }
     packet_destroy(res_memoria);
   }
 
+  buffer_add_uint8(buffer_write, '\0');
+  printf("%s\n", (char *)buffer_write->stream);
+  buffer_destroy(buffer_write);
   packet_t *res_kernel = status_pack(OK);
   packet_send(res_kernel, socket_kernel);
   packet_destroy(res_kernel);
@@ -124,7 +128,8 @@ void interfaz_stdin(packet_t *res, int socket_kernel) {
 
     for (int j = 0; j < split_size; j++) {
       uint8_t byte = buffer_read_uint8(buffer_read);
-      log_info(logger, "Se escribio %u en la direccion %u", byte, address + j);
+      log_info(logger, "Se escribio %c en la direccion %u", (char)byte,
+               address + j);
       packet_add_uint8(req, byte);
     }
 
@@ -534,6 +539,7 @@ void print_blocks() {
     buffer_destroy(buff);
   }
 }
+
 int main(int argc, char *argv[]) {
   struct sigaction sa;
   sa.sa_handler = &sigint_handler;

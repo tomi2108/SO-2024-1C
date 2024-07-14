@@ -699,6 +699,84 @@ void response_io_stdout(packet_t *res, char *nombre) {
   pthread_mutex_unlock(&mutex_exec);
 }
 
+void response_io_fs_truncate(packet_t *res, char *nombre) {
+  char *file_name = packet_read_string(res);
+  uint32_t pid = packet_read_uint32(res);
+  uint32_t size = packet_read_uint32(res);
+
+  packet_t *io_res = packet_create(REGISTER_IO);
+  instruction_op op = IO_FS_TRUNCATE;
+
+  packet_add(io_res, &op, sizeof(instruction_op));
+  packet_add_string(io_res, file_name);
+  packet_add_uint32(io_res, pid);
+  packet_add_uint32(io_res, size);
+
+  pthread_mutex_lock(&mutex_exec);
+  exec->io_packet = io_res;
+  pthread_mutex_unlock(&mutex_exec);
+}
+
+void response_io_fs_write(packet_t *res, char *nombre) {
+  char *file_name = packet_read_string(res);
+  uint32_t pid = packet_read_uint32(res);
+  uint32_t size = packet_read_uint32(res);
+  uint32_t offset = packet_read_uint32(res);
+  uint32_t address = packet_read_uint32(res);
+
+  packet_t *io_res = packet_create(REGISTER_IO);
+  instruction_op op = IO_FS_WRITE;
+
+  packet_add(io_res, &op, sizeof(instruction_op));
+  packet_add_string(io_res, file_name);
+  packet_add_uint32(io_res, pid);
+  packet_add_uint32(io_res, size);
+  packet_add_uint32(io_res, offset);
+  packet_add_uint32(io_res, address);
+
+  pthread_mutex_lock(&mutex_exec);
+  exec->io_packet = io_res;
+  pthread_mutex_unlock(&mutex_exec);
+}
+
+void response_io_fs_read(packet_t *res, char *nombre) {
+  char *file_name = packet_read_string(res);
+  uint32_t pid = packet_read_uint32(res);
+  uint32_t size = packet_read_uint32(res);
+  uint32_t offset = packet_read_uint32(res);
+  uint32_t address = packet_read_uint32(res);
+
+  packet_t *io_res = packet_create(REGISTER_IO);
+  instruction_op op = IO_FS_READ;
+
+  packet_add(io_res, &op, sizeof(instruction_op));
+  packet_add_string(io_res, file_name);
+  packet_add_uint32(io_res, pid);
+  packet_add_uint32(io_res, size);
+  packet_add_uint32(io_res, offset);
+  packet_add_uint32(io_res, address);
+
+  pthread_mutex_lock(&mutex_exec);
+  exec->io_packet = io_res;
+  pthread_mutex_unlock(&mutex_exec);
+}
+
+void response_io_fs_delete(packet_t *res, char *nombre) {
+  char *file_name = packet_read_string(res);
+  uint32_t pid = packet_read_uint32(res);
+
+  packet_t *io_res = packet_create(REGISTER_IO);
+  instruction_op op = IO_FS_DELETE;
+
+  packet_add(io_res, &op, sizeof(instruction_op));
+  packet_add_string(io_res, file_name);
+  packet_add_uint32(io_res, pid);
+
+  pthread_mutex_lock(&mutex_exec);
+  exec->io_packet = io_res;
+  pthread_mutex_unlock(&mutex_exec);
+}
+
 void response_io_fs_create(packet_t *res, char *nombre) {
   char *file_name = packet_read_string(res);
   uint32_t pid = packet_read_uint32(res);
@@ -841,6 +919,15 @@ process_t *response_io_call(instruction_op op, packet_t *res,
       break;
     case IO_FS_CREATE:
       response_io_fs_create(res, nombre);
+    case IO_FS_READ:
+      response_io_fs_read(res, nombre);
+    case IO_FS_WRITE:
+      response_io_fs_write(res, nombre);
+    case IO_FS_DELETE:
+      response_io_fs_delete(res, nombre);
+      break;
+    case IO_FS_TRUNCATE:
+      response_io_fs_truncate(res, nombre);
       break;
     default:
       break;

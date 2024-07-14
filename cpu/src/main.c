@@ -329,6 +329,13 @@ instruction_op decode_instruction(char *instruction, t_list *params) {
   return op;
 }
 
+void print_registers() {
+  log_debug(logger,
+            "ax: %u, bx: %u, cx: %u, dx: %u, eax: %u, ebx: %u, ecx: %u, edx: "
+            "%u, si: %u, di: %u",
+            ax, bx, cx, dx, eax, ebx, ecx, edx, si, di);
+}
+
 status_code exec_instruction(instruction_op op, t_list *params,
                              packet_t *instruction_packet, uint32_t pid) {
   status_code status = OK;
@@ -406,6 +413,9 @@ status_code exec_instruction(instruction_op op, t_list *params,
                                      tamanio_pagina);
     break;
   }
+  case PRINT_REGISTERS:
+    print_registers();
+    break;
   default:
     status = ERROR;
   }
@@ -414,6 +424,7 @@ status_code exec_instruction(instruction_op op, t_list *params,
 
 void free_param(void *p) {
   param *parameter = (param *)p;
+  
   free(parameter);
 }
 

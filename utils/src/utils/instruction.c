@@ -2,8 +2,18 @@
 #include "buffer.h"
 #include "io_type.h"
 #include "packet.h"
+#include <stdint.h>
 
 int ceil_div(uint32_t num, int denom) { return (num + denom - 1) / denom; }
+
+uint32_t get_register(param *p) {
+  uint32_t value = 0;
+  if (p->type == REGISTER)
+    value += *(uint8_t *)p->value;
+  else if (p->type == EXTENDED_REGISTER)
+    value += *(uint32_t *)p->value;
+  return value;
+}
 
 char *instruction_op_to_string(instruction_op op) {
   switch (op) {
@@ -37,6 +47,8 @@ char *instruction_op_to_string(instruction_op op) {
     return "SIGNAL";
   case EXIT:
     return "EXIT";
+  case PRINT_REGISTERS:
+    return "PRINT_REGISTERS";
   default:
     return "UNKNOW_INSTRUCTION";
   };
@@ -73,6 +85,8 @@ instruction_op instruction_op_from_string(char *op) {
     return SIGNAL;
   if (strcmp(op, "EXIT") == 0)
     return EXIT;
+  if (strcmp(op, "PRINT_REGISTERS") == 0)
+    return PRINT_REGISTERS;
   return UNKNOWN_INSTRUCTION;
 }
 
@@ -93,32 +107,32 @@ int instruction_is_syscall(instruction_op op) {
 void instruction_set(t_list *params) {
   param *first_param = list_get(params, 0);
   param *second_param = list_get(params, 1);
-  *(uint32_t *)first_param->value = *(uint32_t *)second_param->value;
+  if (first_param->type == REGISTER)
+    *(uint8_t *)first_param->value = *(uint32_t *)second_param->value;
+  else if (first_param->type == EXTENDED_REGISTER)
+    *(uint32_t *)first_param->value = *(uint32_t *)second_param->value;
 }
 
 void instruction_sum(t_list *params) {
   param *first_param = list_get(params, 0);
   param *second_param = list_get(params, 1);
-
-  *(uint32_t *)first_param->value =
-      *(uint32_t *)first_param->value + *(uint32_t *)second_param->value;
+  uint32_t to_sum = get_register(second_param);
+  *(uint32_t *)first_param->value = *(uint32_t *)first_param->value + to_sum;
 }
 
 void instruction_sub(t_list *params) {
   param *first_param = list_get(params, 0);
   param *second_param = list_get(params, 1);
-
-  *(uint32_t *)first_param->value =
-      *(uint32_t *)first_param->value - *(uint32_t *)second_param->value;
+  uint32_t to_sub = get_register(second_param);
+  *(uint32_t *)first_param->value = *(uint32_t *)first_param->value - to_sub;
 }
 
 void instruction_jnz(t_list *params, uint32_t *pc) {
   param *first_param = list_get(params, 0);
   param *second_param = list_get(params, 1);
-
-  if (*(uint32_t *)first_param->value != 0) {
+  uint32_t to_cmp = get_register(first_param);
+  if (to_cmp != 0)
     *pc = *(uint32_t *)second_param->value;
-  }
 }
 
 void instruction_io_gen_sleep(t_list *params, packet_t *instruction_packet) {
@@ -137,7 +151,7 @@ status_code instruction_mov_in(t_list *params, t_log *logger,
   param *first_param = list_get(params, 0);
   param *second_param = list_get(params, 1);
 
-  uint32_t logical_address = *(uint32_t *)second_param->value;
+  uint32_t logical_address = get_register(second_param);
   status_code res_translate = OK;
   uint32_t physical_address =
       translate_address(logical_address, pid, &res_translate);
@@ -225,11 +239,11 @@ status_code instruction_mov_out(
     uint32_t pid, uint32_t page_size, char *server_ip, char *server_port) {
   param *first_param = list_get(params, 0);
   param *second_param = list_get(params, 1);
-  uint32_t logical_address = *(uint32_t *)first_param->value;
+  uint32_t logical_address = get_register(first_param);
 
   uint32_t size = second_param->type == EXTENDED_REGISTER ? 4 : 1;
 
-  uint32_t write_value = *(uint32_t *)second_param->value;
+  uint32_t write_value = get_register(second_param);
   buffer_t *write_buffer = buffer_create();
   for (int i = 0; i < size; i++) {
     buffer_add_uint8(write_buffer, write_value);
@@ -467,9 +481,9 @@ status_code instruction_io_stdin(t_list *params, packet_t *instruction_packet,
   param *third_param = list_get(params, 2);
   packet_add_string(instruction_packet, (char *)first_param->value);
   packet_add_uint32(instruction_packet, pid);
-  uint32_t size = *(uint32_t *)third_param->value;
+  uint32_t size = get_register(third_param);
   packet_add_uint32(instruction_packet, size);
-  uint32_t logical_address = *(uint32_t *)second_param->value;
+  uint32_t logical_address = get_register(second_param);
   status_code res_translate = OK;
   uint32_t physical_address =
       translate_address(logical_address, pid, &res_translate);
@@ -518,8 +532,9 @@ status_code instruction_io_stdout(t_list *params, packet_t *instruction_packet,
   packet_add_string(instruction_packet, (char *)first_param->value);
   packet_add_uint32(instruction_packet, pid);
 
-  uint32_t size = *(uint32_t *)third_param->value;
-  uint32_t logical_address = *(uint32_t *)second_param->value;
+  uint32_t size = get_register(third_param);
+  uint32_t logical_address = get_register(second_param);
+
   status_code res_translate = OK;
   uint32_t physical_address =
       translate_address(logical_address, pid, &res_translate);
@@ -567,17 +582,70 @@ void instruction_io_fs_create(t_list *params, packet_t *instruction_packet,
   packet_add_uint32(instruction_packet, pid);
 }
 
-void instruction_io_fs_delete(t_list *parms, packet_t *instruction_packet,
-                              t_log *logger, uint32_t pid) {}
+void instruction_io_fs_delete(t_list *params, packet_t *instruction_packet,
+                              t_log *logger, uint32_t pid) {
+  char *interface_name = ((param *)list_get(params, 0))->value;
+  char *file_name = ((param *)list_get(params, 1))->value;
 
-void instruction_io_fs_read(t_list *parms, packet_t *instruction_packet,
-                            t_log *logger, uint32_t pid) {}
+  packet_add_string(instruction_packet, interface_name);
+  packet_add_string(instruction_packet, file_name);
+  packet_add_uint32(instruction_packet, pid);
+}
 
-void instruction_io_fs_write(t_list *parms, packet_t *instruction_packet,
-                             t_log *logger, uint32_t pid) {}
+void instruction_io_fs_read(t_list *params, packet_t *instruction_packet,
+                            t_log *logger, uint32_t pid) {
+  char *interface_name = ((param *)list_get(params, 0))->value;
+  char *file_name = ((param *)list_get(params, 1))->value;
 
-void instruction_io_fs_truncate(t_list *parms, packet_t *instruction_packet,
-                                t_log *logger, uint32_t pid) {}
+  param *third_param = list_get(params, 2);
+  param *fourth_param = list_get(params, 3);
+  param *fifth_param = list_get(params, 4);
+
+  uint32_t logical_address = get_register(third_param);
+  uint32_t size = get_register(fourth_param);
+  uint32_t offset = get_register(fifth_param);
+
+  packet_add_string(instruction_packet, interface_name);
+  packet_add_string(instruction_packet, file_name);
+  packet_add_uint32(instruction_packet, pid);
+  packet_add_uint32(instruction_packet, size);
+  packet_add_uint32(instruction_packet, offset);
+  packet_add_uint32(instruction_packet, logical_address);
+}
+
+void instruction_io_fs_write(t_list *params, packet_t *instruction_packet,
+                             t_log *logger, uint32_t pid) {
+  char *interface_name = ((param *)list_get(params, 0))->value;
+  char *file_name = ((param *)list_get(params, 1))->value;
+  param *third_param = list_get(params, 2);
+  param *fourth_param = list_get(params, 3);
+  param *fifth_param = list_get(params, 4);
+
+  uint32_t logical_address = get_register(third_param);
+  uint32_t size = get_register(fourth_param);
+  uint32_t offset = get_register(fifth_param);
+
+  packet_add_string(instruction_packet, interface_name);
+  packet_add_string(instruction_packet, file_name);
+  packet_add_uint32(instruction_packet, pid);
+  packet_add_uint32(instruction_packet, size);
+  packet_add_uint32(instruction_packet, offset);
+  packet_add_uint32(instruction_packet, logical_address);
+}
+
+void instruction_io_fs_truncate(t_list *params, packet_t *instruction_packet,
+                                t_log *logger, uint32_t pid) {
+
+  char *interface_name = ((param *)list_get(params, 0))->value;
+  char *file_name = ((param *)list_get(params, 1))->value;
+  param *third_param = list_get(params, 2);
+  uint32_t size = get_register(third_param);
+
+  packet_add_string(instruction_packet, interface_name);
+  packet_add_string(instruction_packet, file_name);
+  packet_add_uint32(instruction_packet, pid);
+  packet_add_uint32(instruction_packet, size);
+}
 
 void instruction_wait(t_list *params, packet_t *instruction_packet,
                       t_log *logger, uint32_t pid) {

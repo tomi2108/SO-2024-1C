@@ -1,5 +1,4 @@
 #include "process.h"
-#include "packet.h"
 
 process_t *process_create(uint32_t pid, char *path, uint32_t quantum) {
   process_t *process = malloc(sizeof(process_t));

@@ -31,6 +31,7 @@ typedef enum {
   EXIT,
   WAIT,
   SIGNAL,
+  PRINT_REGISTERS,
   UNKNOWN_INSTRUCTION
 } instruction_op;
 
