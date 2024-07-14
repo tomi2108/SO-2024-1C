@@ -41,6 +41,13 @@ int block_count;
 int socket_kernel;
 
 void clean_up() {
+  int socket = connection_create_client(ip_kernel, puerto_kernel);
+  packet_t* unregister_req = packet_create(UNREGISTER_IO);
+  packet_add_string(unregister_req, name);
+  packet_send(unregister_req, socket);
+  packet_destroy(unregister_req);
+
+  connection_close(socket);
   connection_close(socket_kernel);
   config_destroy(config);
   log_destroy(logger);

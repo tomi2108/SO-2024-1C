@@ -414,7 +414,33 @@ void end_process(process_t *process, int was_new) {
     sem_post(&sem_ready_empty);
 }
 
-void disconnect_io() {}
+void response_unregister_io(packet_t *request) {
+  char *nombre = packet_read_string(request);
+
+  pthread_mutex_lock(&mutex_io_dict);
+  io *interfaz = dictionary_get(io_dict, nombre);
+  pthread_mutex_unlock(&mutex_io_dict);
+
+  log_warning(logger, "La I/O %s fue desconectada", nombre);
+
+  pthread_mutex_lock(&mutex_blocked);
+  t_queue *blocked_queue = list_get(blocked, interfaz->queue_index);
+  pthread_mutex_unlock(&mutex_blocked);
+
+  pthread_mutex_lock(&interfaz->mutex_queue);
+  while (queue_size(blocked_queue) > 0) {
+    process_t *blocked_process = queue_pop(blocked_queue);
+    log_error(logger,
+              "Finaliza el proceso %u porque la I/O %s fue desconectada",
+              blocked_process->pid, nombre);
+    end_process(blocked_process, 0);
+  }
+  pthread_mutex_unlock(&interfaz->mutex_queue);
+
+  sem_post(&interfaz->sem_queue_full);
+}
+
+void destroy_queue(void *e) { queue_destroy(e); }
 
 void response_register_io(packet_t *request, int io_socket) {
   char *nombre = packet_read_string(request);
@@ -457,17 +483,29 @@ void response_register_io(packet_t *request, int io_socket) {
     sem_wait(&interfaz->sem_queue_full);
 
     pthread_mutex_lock(&interfaz->mutex_queue);
-    process_t *head = queue_peek(io_queue);
+    process_t *head = NULL;
+    if (queue_size(io_queue) > 0)
+      head = queue_peek(io_queue);
     pthread_mutex_unlock(&interfaz->mutex_queue);
-    packet_send(head->io_packet, io_socket);
-    packet_destroy(head->io_packet);
-    head->io_packet = NULL;
+    if (head != NULL) {
+      packet_send(head->io_packet, io_socket);
+      packet_destroy(head->io_packet);
+      head->io_packet = NULL;
+    }
 
     packet_t *packet = packet_recieve(interfaz->socket);
     // io disconnected
-    if (packet == NULL)
-      break;
+    if (packet == NULL) {
+      pthread_mutex_lock(&mutex_blocked);
+      list_remove_and_destroy_element(blocked, interfaz->queue_index,
+                                      &destroy_queue);
+      pthread_mutex_unlock(&mutex_blocked);
 
+      pthread_mutex_lock(&mutex_io_dict);
+      dictionary_remove_and_destroy(io_dict, nombre, &free_io);
+      pthread_mutex_unlock(&mutex_io_dict);
+      break;
+    }
     pthread_mutex_lock(&interfaz->mutex_queue);
     int size = queue_size(io_queue);
     process_t *process = NULL;
@@ -499,29 +537,6 @@ void response_register_io(packet_t *request, int io_socket) {
                blocked_process->pid, nombre);
     }
   }
-  log_warning(logger, "La I/O %s fue desconectada", nombre);
-
-  pthread_mutex_lock(&mutex_blocked);
-  t_queue *blocked_queue = list_get(blocked, interfaz->queue_index);
-  pthread_mutex_unlock(&mutex_blocked);
-
-  pthread_mutex_lock(&interfaz->mutex_queue);
-  while (queue_size(blocked_queue) > 0) {
-    process_t *blocked_process = queue_pop(blocked_queue);
-    log_error(logger,
-              "Finaliza el proceso %u porque la I/O %s fue desconectada",
-              blocked_process->pid, nombre);
-    end_process(blocked_process, 0);
-  }
-  pthread_mutex_unlock(&interfaz->mutex_queue);
-
-  pthread_mutex_lock(&mutex_blocked);
-  list_remove(blocked, interfaz->queue_index);
-  pthread_mutex_unlock(&mutex_blocked);
-
-  pthread_mutex_lock(&mutex_io_dict);
-  dictionary_remove_and_destroy(io_dict, nombre, &free_io);
-  pthread_mutex_unlock(&mutex_io_dict);
 }
 
 void *atender_cliente(void *args) {
@@ -531,6 +546,9 @@ void *atender_cliente(void *args) {
   switch (request->type) {
   case REGISTER_IO:
     response_register_io(request, client_socket);
+    break;
+  case UNREGISTER_IO:
+    response_unregister_io(request);
     break;
   default:
     break;
