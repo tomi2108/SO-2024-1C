@@ -1,6 +1,7 @@
 #include <commons/bitarray.h>
 #include <commons/config.h>
 #include <commons/log.h>
+#include <dirent.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <stdint.h>
@@ -20,6 +21,9 @@
 #define MAX_METADATA_VALUE_LENGTH 10
 #define FILE_SIZE_KEY "TAMANIO_ARCHIVO"
 #define INITIAL_BLOCK_KEY "BLOQUE_INICIAL"
+
+#define BITMAP_FILE_NAME "bitmap.dat"
+#define BLOCKS_FILE_NAME "bloques.dat"
 
 t_log *logger;
 t_config *config;
@@ -42,7 +46,7 @@ int socket_kernel;
 
 void clean_up() {
   int socket = connection_create_client(ip_kernel, puerto_kernel);
-  packet_t* unregister_req = packet_create(UNREGISTER_IO);
+  packet_t *unregister_req = packet_create(UNREGISTER_IO);
   packet_add_string(unregister_req, name);
   packet_send(unregister_req, socket);
   packet_destroy(unregister_req);
@@ -159,29 +163,45 @@ void destroy_bitarray_bitmap(t_bitarray *bitarray) {
   bitarray_destroy(bitarray);
 }
 
+void print_bitarray(t_bitarray *bitarray) {
+  int i = 0;
+  while (i < bitarray_get_max_bit(bitarray)) {
+    if (bitarray_test_bit(bitarray, i))
+      printf("1");
+    else
+      printf("0");
+
+    if ((i + 1) % 4 == 0)
+      printf(" ");
+    i++;
+  }
+  printf("\n");
+}
+
 int get_bitmap_fd(int o_flags) {
-  char *bitmap_path = parse_file_name("/bitmap.dat");
+  char *bitmap_path = parse_file_name(BITMAP_FILE_NAME);
   int fd = open(bitmap_path, o_flags);
+  lseek(fd, 0, SEEK_SET);
   free(bitmap_path);
   return fd;
 }
 
 int get_blocks_fd(int o_flags) {
-  char *blocks_path = parse_file_name("/bloques.dat");
+  char *blocks_path = parse_file_name(BLOCKS_FILE_NAME);
   int fd = open(blocks_path, o_flags);
+  lseek(fd, 0, SEEK_SET);
   free(blocks_path);
   return fd;
 }
 
 t_bitarray *get_bitarray_bitmap(int bitmap_fd) {
-  char *buffer = 0;
-  long length = block_count / 8;
+  long size = block_count / 8;
 
-  buffer = malloc((length + 1) * sizeof(char));
-  read(bitmap_fd, buffer, length * sizeof(char));
-  buffer[length] = '\0';
+  char *buffer = malloc(size * sizeof(char));
+  memset(buffer, 0, size * sizeof(char));
+  read(bitmap_fd, buffer, size * sizeof(char));
 
-  return bitarray_create_with_mode(buffer, block_count, MSB_FIRST);
+  return bitarray_create_with_mode(buffer, size, MSB_FIRST);
 }
 
 void free_bitarray_bitmap(t_bitarray *bitarray, int bitmap_fd) {
@@ -190,7 +210,9 @@ void free_bitarray_bitmap(t_bitarray *bitarray, int bitmap_fd) {
 }
 
 void set_bitarray_bitmap(t_bitarray *bitarray, int bitmap_fd) {
-  write(bitmap_fd, bitarray->bitarray, sizeof(char) * block_count / 8);
+  long size = block_count / 8;
+  lseek(bitmap_fd, 0, SEEK_SET);
+  write(bitmap_fd, bitarray->bitarray, sizeof(char) * size);
 }
 
 int get_next_free_block(t_bitarray *bitarray) {
@@ -198,7 +220,7 @@ int get_next_free_block(t_bitarray *bitarray) {
   while (bitarray_test_bit(bitarray, i))
     i++;
 
-  if (i >= block_count * 8)
+  if (i >= block_count)
     return -1;
 
   return i;
@@ -252,6 +274,8 @@ void write_n_blocks(int initial_block, uint32_t n, buffer_t *buff) {
 
 int get_metadata(char *file_name, char *key) {
   t_config *metadata = config_create(file_name);
+  if (metadata == NULL)
+    return -1;
   int data = config_get_int_value(metadata, key);
   config_destroy(metadata);
   return data;
@@ -269,7 +293,7 @@ void set_metadata(char *file_name, char *key, int value) {
 void create_metadata(char *file_name, int initial_block) {
   file_create(file_name);
   set_metadata(file_name, INITIAL_BLOCK_KEY, initial_block);
-  set_metadata(file_name, FILE_SIZE_KEY, 0);
+  set_metadata(file_name, FILE_SIZE_KEY, block_size);
 }
 
 void destroy_metadata(char *file_name) { remove(file_name); }
@@ -295,7 +319,15 @@ void fs_create(char *file_name) {
 
 void fs_delete(char *file_name) {
   int file_size = get_metadata(file_name, FILE_SIZE_KEY);
+  if (file_size == -1) {
+    log_error(logger, "El archivo %s no existe", file_name);
+    return;
+  }
   int initial_block = get_metadata(file_name, INITIAL_BLOCK_KEY);
+  if (initial_block == -1) {
+    log_error(logger, "El archivo %s no existe", file_name);
+    return;
+  }
   uint32_t file_block_count = file_size / block_size;
 
   int bitmap_fd = get_bitmap_fd(O_RDWR);
@@ -366,27 +398,64 @@ void fs_write(char *file_name, uint32_t pid, packet_t *req) {
   int initial_block = get_metadata(file_name, INITIAL_BLOCK_KEY);
   write_n_blocks(initial_block + offset, size, buff);
 
+  int file_size = get_metadata(file_name, FILE_SIZE_KEY);
+  set_metadata(file_name, FILE_SIZE_KEY, file_size + size);
+
   buffer_destroy(buff);
   connection_close(socket);
 }
 
+char *get_file_name_initial_block(int initial_block) {
+  DIR *d;
+  d = opendir(path_base_dialfs);
+  if (d) {
+    struct dirent *dir;
+    while ((dir = readdir(d)) != NULL) {
+      if (strcmp(dir->d_name, ".") == 0 || strcmp(dir->d_name, "..") == 0 ||
+          strcmp(dir->d_name, BITMAP_FILE_NAME) == 0 ||
+          strcmp(dir->d_name, BLOCKS_FILE_NAME) == 0)
+        continue;
+
+      char *parsed_file_name = parse_file_name(dir->d_name);
+      log_debug(logger, "CHECKING :%s file_name, initial %d", dir->d_name,
+                initial_block);
+      if (initial_block == get_metadata(parsed_file_name, INITIAL_BLOCK_KEY)) {
+        log_debug(logger, "FOUND :%s file_name", dir->d_name);
+        return parsed_file_name;
+      }
+    }
+    closedir(d);
+  }
+  return NULL;
+}
+
 void compact(t_bitarray *bitmap) {
+  log_debug(logger, "Compactando");
   usleep(1000 * retraso_compactacion);
   int compacts = 0;
+  int prev = 0;
   do {
     compacts = 0;
     int i = 1;
     int j = 0;
-    while (j < block_count) {
+    while (i < block_count) {
       bool bit_i = bitarray_test_bit(bitmap, i);
       bool bit_j = bitarray_test_bit(bitmap, j);
       if (bit_i && !bit_j) {
+        if (prev == 0) {
+          char *file_name = get_file_name_initial_block(i);
+          log_debug(logger, "SETTING %s to %d", file_name, j);
+          set_metadata(file_name, INITIAL_BLOCK_KEY, j);
+        }
         compacts++;
         buffer_t *buff = read_n_blocks(i, 1);
         dealloc_n_blocks(bitmap, i, 1);
         alloc_n_blocks(bitmap, j, 1);
         write_n_blocks(j, 1, buff);
         buffer_destroy(buff);
+        prev = 1;
+      } else {
+        prev = 0;
       }
       i++;
       j++;
@@ -407,7 +476,7 @@ int can_file_extend(t_bitarray *bitmap, char *file_name, int blocks_to_extend) {
     if (!bit)
       free_blocks++;
 
-    if (i >= initial_block + file_blocks) {
+    if (i > initial_block && i <= initial_block + file_blocks) {
       if (!bit)
         cont_i++;
 
@@ -423,13 +492,16 @@ int can_file_extend(t_bitarray *bitmap, char *file_name, int blocks_to_extend) {
 
 void fs_truncate(char *file_name, packet_t *req) {
   uint32_t size = packet_read_uint32(req);
+
   if (size == 0)
     return fs_delete(file_name);
   uint32_t file_size = get_metadata(file_name, FILE_SIZE_KEY);
-  uint32_t file_blocks = file_size / block_size;
-  uint32_t initial_block = get_metadata(file_name, INITIAL_BLOCK_KEY);
+
   if (file_size == size)
     return;
+
+  uint32_t file_blocks = file_size / block_size;
+  uint32_t initial_block = get_metadata(file_name, INITIAL_BLOCK_KEY);
   int reduce = file_size > size;
 
   int fd = get_bitmap_fd(O_RDWR);
@@ -438,36 +510,79 @@ void fs_truncate(char *file_name, packet_t *req) {
 
   if (reduce) {
     uint32_t block_difference = (file_size - size) / block_size;
+    if (block_difference == 0)
+      return;
     dealloc_n_blocks(bitmap, initial_block + file_blocks - block_difference,
                      block_difference);
     set_bitarray_bitmap(bitmap, fd);
+    set_metadata(file_name, FILE_SIZE_KEY,
+                 file_size - block_difference * block_size);
   } else {
     uint32_t block_difference = ceil_div(size - file_size, block_size);
+    if (block_difference == 0)
+      return;
     int free_block = can_file_extend(bitmap, file_name, block_difference);
     if (free_block == -2) { // Out of memory
       bitarray_destroy(bitmap);
     } else if (free_block == -1) {
-      buffer_t *buff = read_n_blocks(initial_block, file_size);
-      dealloc_n_blocks(bitmap, initial_block, file_size);
+      buffer_t *buff = read_n_blocks(initial_block, file_blocks);
+      dealloc_n_blocks(bitmap, initial_block, file_blocks);
       compact(bitmap);
       int next_free_block = get_next_free_block(bitmap);
-      alloc_n_blocks(bitmap, next_free_block, file_size + block_difference);
+      alloc_n_blocks(bitmap, next_free_block, file_blocks + block_difference);
       set_bitarray_bitmap(bitmap, fd);
-      write_n_blocks(free_block, file_size + block_difference, buff);
+      write_n_blocks(next_free_block, file_blocks + block_difference, buff);
+      set_metadata(file_name, INITIAL_BLOCK_KEY, next_free_block);
       buffer_destroy(buff);
     } else {
       alloc_n_blocks(bitmap, free_block, size);
       set_bitarray_bitmap(bitmap, fd);
     }
+    set_metadata(file_name, FILE_SIZE_KEY,
+                 file_size + block_difference * block_size);
   }
 
   file_unlock(fd, lock);
   free_bitarray_bitmap(bitmap, fd);
 }
 
+void create_bitmap() {
+  char *bitmap_path = parse_file_name(BITMAP_FILE_NAME);
+  int exists = file_exists(bitmap_path);
+  if (exists) {
+    free(bitmap_path);
+    return;
+  }
+  file_create(bitmap_path);
+  log_debug(logger, "Creating %s", bitmap_path);
+  FILE *bitmap_file = fopen(bitmap_path, "w");
+  uint8_t write = 0;
+  for (int i = 0; i < block_count / 8; i++)
+    fwrite(&write, 1, 1, bitmap_file);
+  fclose(bitmap_file);
+}
+
+void create_blocks() {
+  char *blocks_path = parse_file_name(BLOCKS_FILE_NAME);
+  int exists = file_exists(blocks_path);
+  if (exists) {
+    free(blocks_path);
+    return;
+  }
+  file_create(blocks_path);
+  log_debug(logger, "Creating %s", blocks_path);
+  FILE *blocks_file = fopen(blocks_path, "w");
+  uint8_t write = 0;
+  for (int i = 0; i < block_count * block_size; i++)
+    fwrite(&write, 1, 1, blocks_file);
+  fclose(blocks_file);
+}
+
 void interfaz_dialfs(packet_t *res, int socket_kernel) {
+  create_bitmap();
+  create_blocks();
   usleep(tiempo_unidad_trabajo_ms * 1000);
-  instruction_op op;
+  instruction_op op = 0;
   packet_read(res, &op, sizeof(instruction_op));
 
   char *file_name = packet_read_string(res);
@@ -518,20 +633,6 @@ uint8_t is_io_type_supported() {
          strcmp(io_type, "STDOUT") == 0 || strcmp(io_type, "DIALFS") == 0;
 }
 
-void print_bitarray(t_bitarray *bitarray) {
-  int i = 0;
-  while (i < block_count) {
-    bool bit = bitarray_test_bit(bitarray, i);
-    if (bit)
-      printf("1");
-    else
-      printf("0");
-    if ((i + 1) % 16 == 0)
-      printf("\n");
-    i++;
-  }
-}
-
 void print_blocks() {
   int i = 0;
   while (i < block_count) {
@@ -552,6 +653,8 @@ int main(int argc, char *argv[]) {
   sa.sa_handler = &sigint_handler;
   sa.sa_flags = SA_RESTART;
   sigaction(SIGINT, &sa, NULL);
+  sigaction(SIGABRT, &sa, NULL);
+  sigaction(SIGTERM, &sa, NULL);
 
   logger =
       log_create("entradasalida.log", "ENTRADA/SALIDA", 1, LOG_LEVEL_DEBUG);
@@ -594,14 +697,16 @@ int main(int argc, char *argv[]) {
         break;
       }
     }
+
     if (strcmp(io_type, "GENERICA") == 0) {
       interfaz_generica(res, socket_kernel);
     } else if (strcmp(io_type, "STDIN") == 0) {
       interfaz_stdin(res, socket_kernel);
     } else if (strcmp(io_type, "STDOUT") == 0) {
       interfaz_stdout(res, socket_kernel);
-    } else if (strcmp(io_type, "DIALFS") == 0)
+    } else if (strcmp(io_type, "DIALFS") == 0) {
       interfaz_dialfs(res, socket_kernel);
+    }
     packet_destroy(res);
   }
   clean_up();

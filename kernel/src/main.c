@@ -937,10 +937,13 @@ process_t *response_io_call(instruction_op op, packet_t *res,
       break;
     case IO_FS_CREATE:
       response_io_fs_create(res, nombre);
+      break;
     case IO_FS_READ:
       response_io_fs_read(res, nombre);
+      break;
     case IO_FS_WRITE:
       response_io_fs_write(res, nombre);
+      break;
     case IO_FS_DELETE:
       response_io_fs_delete(res, nombre);
       break;
@@ -959,7 +962,8 @@ process_t *wait_process_exec(int socket_cpu_dispatch, interrupt *exit,
   packet_t *res = packet_recieve(socket_cpu_dispatch);
   switch (res->type) {
   case INSTRUCTION: {
-    instruction_op op = packet_read_uint32(res);
+    instruction_op op = 0;
+    packet_read(res, &op, sizeof(instruction_op));
     if (!instruction_is_syscall(op)) {
       packet_destroy(res);
       return NULL;

@@ -41,6 +41,14 @@ char *instruction_op_to_string(instruction_op op) {
     return "IO_STDOUT_WRITE";
   case IO_FS_CREATE:
     return "IO_FS_CREATE";
+  case IO_FS_DELETE:
+    return "IO_FS_DELETE";
+  case IO_FS_READ:
+    return "IO_FS_READ";
+  case IO_FS_WRITE:
+    return "IO_FS_WRITE";
+  case IO_FS_TRUNCATE:
+    return "IO_FS_TRUNCATE";
   case WAIT:
     return "WAIT";
   case SIGNAL:
@@ -79,6 +87,14 @@ instruction_op instruction_op_from_string(char *op) {
     return IO_STDIN_READ;
   if (strcmp(op, "IO_FS_CREATE") == 0)
     return IO_FS_CREATE;
+  if (strcmp(op, "IO_FS_DELETE") == 0)
+    return IO_FS_DELETE;
+  if (strcmp(op, "IO_FS_READ") == 0)
+    return IO_FS_READ;
+  if (strcmp(op, "IO_FS_WRITE") == 0)
+    return IO_FS_WRITE;
+  if (strcmp(op, "IO_FS_TRUNCATE") == 0)
+    return IO_FS_TRUNCATE;
   if (strcmp(op, "WAIT") == 0)
     return WAIT;
   if (strcmp(op, "SIGNAL") == 0)
