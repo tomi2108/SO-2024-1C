@@ -43,7 +43,7 @@ char *puerto_memoria;
 char *path_base_dialfs;
 int block_size;
 int block_count;
-int socket_kernel;
+int socket_kernel = -1;
 
 void clean_up() {
   int socket = connection_create_client(ip_kernel, puerto_kernel);
@@ -53,7 +53,8 @@ void clean_up() {
   packet_destroy(unregister_req);
 
   connection_close(socket);
-  connection_close(socket_kernel);
+  if (socket_kernel != -1)
+    connection_close(socket_kernel);
   config_destroy(config);
   log_destroy(logger);
 }
@@ -65,7 +66,7 @@ void sigint_handler() {
 
 int ceil_div(uint32_t num, int denom) { return (num + denom - 1) / denom; }
 
-void interfaz_generica(packet_t *res, int socket_kernel) {
+void interfaz_generica(packet_t *res) {
   uint32_t tiempo_espera = packet_read_uint32(res);
   log_info(logger, "Esperando %u segundos",
            (tiempo_espera * tiempo_unidad_trabajo_ms) / 1000);
@@ -75,17 +76,21 @@ void interfaz_generica(packet_t *res, int socket_kernel) {
   packet_destroy(res_kernel);
 }
 
-void interfaz_stdout(packet_t *res, int socket_kernel) {
+void interfaz_stdout(packet_t *res) {
   uint32_t pid = packet_read_uint32(res);
   uint32_t splits = packet_read_uint32(res);
+  uint32_t total_size = 0;
 
   buffer_t *buffer_write = buffer_create();
   for (int i = 0; i < splits; i++) {
     uint32_t address = packet_read_uint32(res);
     uint32_t size = packet_read_uint32(res);
+    total_size += size;
     int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
-    if (socket_memoria == -1)
+    if (socket_memoria == -1) {
+      clean_up();
       exit_client_connection_error(logger);
+    }
 
     packet_t *req = packet_create(READ_DIR);
     packet_add_uint32(req, address);
@@ -105,14 +110,19 @@ void interfaz_stdout(packet_t *res, int socket_kernel) {
   }
 
   buffer_add_uint8(buffer_write, '\0');
-  printf("%s\n", (char *)buffer_write->stream);
+
+  for (int i = 0; i < total_size + 1; i++) {
+    uint8_t byte = buffer_read_uint8(buffer_write);
+    printf("%c", byte);
+  }
+  printf("\n");
   buffer_destroy(buffer_write);
   packet_t *res_kernel = status_pack(OK);
   packet_send(res_kernel, socket_kernel);
   packet_destroy(res_kernel);
 }
 
-void interfaz_stdin(packet_t *res, int socket_kernel) {
+void interfaz_stdin(packet_t *res) {
   uint32_t pid = packet_read_uint32(res);
   uint32_t size = packet_read_uint32(res);
   uint32_t splits = packet_read_uint32(res);
@@ -130,8 +140,10 @@ void interfaz_stdin(packet_t *res, int socket_kernel) {
     uint32_t address = packet_read_uint32(res);
     uint32_t split_size = packet_read_uint32(res);
     int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
-    if (socket_memoria == -1)
+    if (socket_memoria == -1) {
+      clean_up();
       exit_client_connection_error(logger);
+    }
 
     packet_t *req = packet_create(WRITE_DIR);
     packet_add_uint32(req, address);
@@ -599,7 +611,7 @@ void create_blocks() {
   fclose(blocks_file);
 }
 
-void interfaz_dialfs(packet_t *res, int socket_kernel) {
+void interfaz_dialfs(packet_t *res) {
   create_bitmap();
   create_blocks();
   usleep(tiempo_unidad_trabajo_ms * 1000);
@@ -637,15 +649,17 @@ void interfaz_dialfs(packet_t *res, int socket_kernel) {
   packet_destroy(res_kernel);
 }
 
-void request_register_io(int client_socket) {
-  if (client_socket == -1)
+void request_register_io() {
+  if (socket_kernel == -1) {
+    clean_up();
     exit_client_connection_error(logger);
+  }
 
   packet_t *request = packet_create(REGISTER_IO);
 
   packet_add_string(request, name);
   packet_add_string(request, io_type);
-  packet_send(request, client_socket);
+  packet_send(request, socket_kernel);
   packet_destroy(request);
 }
 
@@ -708,7 +722,7 @@ int main(int argc, char *argv[]) {
   block_count = config_get_int_value(config, "BLOCK_COUNT");
 
   socket_kernel = connection_create_client(ip_kernel, puerto_kernel);
-  request_register_io(socket_kernel);
+  request_register_io();
   while (1) {
     packet_t *res = packet_recieve(socket_kernel);
     if (res->type == STATUS) {
@@ -720,13 +734,13 @@ int main(int argc, char *argv[]) {
     }
 
     if (strcmp(io_type, "GENERICA") == 0) {
-      interfaz_generica(res, socket_kernel);
+      interfaz_generica(res);
     } else if (strcmp(io_type, "STDIN") == 0) {
-      interfaz_stdin(res, socket_kernel);
+      interfaz_stdin(res);
     } else if (strcmp(io_type, "STDOUT") == 0) {
-      interfaz_stdout(res, socket_kernel);
+      interfaz_stdout(res);
     } else if (strcmp(io_type, "DIALFS") == 0) {
-      interfaz_dialfs(res, socket_kernel);
+      interfaz_dialfs(res);
     }
     packet_destroy(res);
   }

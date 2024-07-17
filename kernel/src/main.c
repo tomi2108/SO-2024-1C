@@ -402,6 +402,7 @@ void list_processes(void) {
   pthread_mutex_unlock(&mutex_finished);
   list_iterator_destroy(finished_iterator);
 };
+
 void end_process(process_t *process, int was_new) {
   free_process(process->pid);
   log_info(logger, "Finaliza el proceso %u", process->pid);
@@ -1121,7 +1122,17 @@ void planificacion_vrr() {
   if (updated_process != NULL)
     updated_process->quantum = end_timer < 0 ? 0 : end_timer;
 
+  pthread_mutex_lock(&mutex_exec);
+  int pid = exec->pid;
+  pthread_mutex_unlock(&mutex_exec);
+
   block_if_scheduler_off();
+
+  pthread_mutex_lock(&mutex_exec);
+  int ret = exec == NULL || exec->pid != pid;
+  pthread_mutex_unlock(&mutex_exec);
+  if (ret)
+    return;
   empty_exec();
 
   if (end_timer <= 0 && updated_process == NULL) {
@@ -1179,7 +1190,17 @@ void planificacion_rr() {
       request_cpu_interrupt(0, socket_cpu_dispatch);
   }
 
+  pthread_mutex_lock(&mutex_exec);
+  int pid = exec->pid;
+  pthread_mutex_unlock(&mutex_exec);
+
   block_if_scheduler_off();
+
+  pthread_mutex_lock(&mutex_exec);
+  int ret = exec == NULL || exec->pid != pid;
+  pthread_mutex_unlock(&mutex_exec);
+  if (ret)
+    return;
   empty_exec();
 
   if (end_timer <= 0 && updated_process == NULL) {
@@ -1220,7 +1241,19 @@ void planificacion_fifo() {
       request_cpu_interrupt(0, socket_cpu_dispatch);
   }
 
+  pthread_mutex_lock(&mutex_exec);
+  int exec_pid = -1;
+  if (exec != NULL)
+    exec_pid = exec->pid;
+  pthread_mutex_unlock(&mutex_exec);
+
   block_if_scheduler_off();
+
+  pthread_mutex_lock(&mutex_exec);
+  int ret = exec_pid == -1 || exec == NULL || exec->pid != exec_pid;
+  pthread_mutex_unlock(&mutex_exec);
+  if (ret)
+    return;
   empty_exec();
 
   if (exit == FINISH)
@@ -1375,8 +1408,11 @@ process_t *process_queue_find_and_remove(t_queue *queue, uint32_t pid) {
 void finish_process(uint32_t pid) {
   pthread_mutex_lock(&mutex_exec);
   if (exec != NULL && exec->pid == pid) {
-    pthread_mutex_unlock(&mutex_exec);
     request_cpu_interrupt(1, -1);
+    process_t *p = process_dup(*exec);
+    end_process(p, 0);
+    pthread_mutex_unlock(&mutex_exec);
+    empty_exec();
     return;
   }
   pthread_mutex_unlock(&mutex_exec);
@@ -1432,8 +1468,9 @@ void finish_process(uint32_t pid) {
       pthread_mutex_lock(&io->mutex_queue);
       if (queue_size(blocked_queue) > 0) {
         process = process_queue_find_and_remove(blocked_queue, pid);
-        process_t *head = queue_peek(blocked_queue);
-        pthread_mutex_unlock(&io->mutex_queue);
+        process_t *head = NULL;
+        if (queue_size(blocked_queue) > 0)
+          head = queue_peek(blocked_queue);
 
         if (process != NULL) {
           list_iterator_destroy(iterator);
@@ -1441,6 +1478,7 @@ void finish_process(uint32_t pid) {
           if (head != NULL && process->pid != head->pid)
             sem_wait(&io->sem_queue_full);
           end_process(process, 0);
+          pthread_mutex_unlock(&io->mutex_queue);
           return;
         }
       }
