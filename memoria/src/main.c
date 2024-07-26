@@ -285,17 +285,19 @@ void response_fetch_frame_number(packet_t *req, int client_socket) {
   uint32_t page_number = packet_read_uint32(req);
 
   int frame_number = get_frame_from_page(page_table, page_number, pid);
-
   if (frame_number == -1)
     log_error(logger, "El proceso %d no tiene pagina %d", pid, page_number);
 
+  log_info(logger,
+           "Pid: %u - Acceso a tabla de paginas - Pagina: %u - Marco: %u", pid,
+           page_number, frame_number);
+  
   packet_t *res = status_pack(frame_number == -1 ? ERROR : OK);
   packet_add_uint32(res, frame_number);
   packet_send(res, client_socket);
   packet_destroy(res);
 }
 
-// Validar que la memoria pertenezca al proceso que lee....????
 void response_read_dir(packet_t *request, int client_socket) {
   uint32_t address = packet_read_uint32(request);
   uint32_t pid = packet_read_uint32(request);
@@ -323,7 +325,6 @@ void response_read_dir(packet_t *request, int client_socket) {
   packet_destroy(res);
 }
 
-// Validar que la memoria pertenezca al proceso que escribe....????
 void response_write_dir(packet_t *request, int client_socket) {
   uint32_t address = packet_read_uint32(request);
   uint32_t pid = packet_read_uint32(request);
@@ -440,13 +441,12 @@ int main(int argc, char *argv[]) {
     frame_struct->page = 0;
     list_add(page_table, frame_struct);
   }
+  log_info(logger, "Creacion de la tabla de paginas");
 
   int server_socket = connection_create_server(puerto_escucha);
   if (server_socket == -1)
     exit_server_connection_error(logger);
   log_info(logger, "Servidor levantado en el puerto %s", puerto_escucha);
-
-  // print_page_table();
 
   while (1) {
     int client_socket = connection_accept_client(server_socket);

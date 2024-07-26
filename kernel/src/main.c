@@ -203,6 +203,7 @@ status_code request_init_process(char *path) {
 void send_to_ready(process_t *process) {
   pthread_mutex_lock(&mutex_ready);
   queue_push(ready_queue, process);
+  print_process_queue(ready_queue, "READY");
   pthread_mutex_unlock(&mutex_ready);
   sem_post(&sem_ready_full);
 }
@@ -667,6 +668,8 @@ process_t *request_cpu_interrupt(int interrupt, int socket_cpu_dispatch) {
 
 void response_io_gen_sleep(packet_t *res, char *nombre) {
   packet_t *io_res = packet_create(REGISTER_IO);
+  uint32_t pid = packet_read_uint32(res);
+  packet_add_uint32(io_res, pid);
 
   uint32_t tiempo_espera = packet_read_uint32(res);
   packet_add_uint32(io_res, tiempo_espera);
@@ -708,8 +711,8 @@ void response_io_stdout(packet_t *res, char *nombre) {
 
   for (int i = 0; i < splits; i++) {
     uint32_t address = packet_read_uint32(res);
-    uint32_t size = packet_read_uint32(res);
     packet_add_uint32(io_res, address);
+    uint32_t size = packet_read_uint32(res);
     packet_add_uint32(io_res, size);
   }
 
@@ -839,75 +842,78 @@ process_t *response_wait(packet_t *res, int socket_cpu_dispatch,
                          interrupt *exit, char **name) {
   char *resource_name = packet_read_string(res);
   int resource_i = get_resource_id(resource_name);
+  if (resource_i == -1) {
+    log_error(logger, "No existe el recurso %s finalizando proceso",
+              resource_name);
+    *exit = FINISH;
+    return request_cpu_interrupt(1, socket_cpu_dispatch);
+  }
 
   pthread_mutex_lock(&mutex_resources_array);
   resource *r = &resources_array[resource_i];
 
-  if (resource_i != -1) {
-    pthread_mutex_lock(&mutex_exec);
-    char *key = ui32tostr(exec->pid);
-    pthread_mutex_unlock(&mutex_exec);
+  pthread_mutex_lock(&mutex_exec);
+  char *key = ui32tostr(exec->pid);
+  pthread_mutex_unlock(&mutex_exec);
 
-    pthread_mutex_lock(&mutex_resource_dict);
-    int *taken_resources = dictionary_get(resource_dict, key);
-    taken_resources[resource_i]++;
-    pthread_mutex_unlock(&mutex_resource_dict);
+  pthread_mutex_lock(&mutex_resource_dict);
+  int *taken_resources = dictionary_get(resource_dict, key);
+  taken_resources[resource_i]++;
+  pthread_mutex_unlock(&mutex_resource_dict);
 
-    free(key);
-    r->instances--;
-    if (r->instances < 0) {
-      *exit = BLOCK_R;
-      *name = strdup(r->name);
-      pthread_mutex_unlock(&mutex_resources_array);
-      return request_cpu_interrupt(1, socket_cpu_dispatch);
-    }
+  free(key);
+  r->instances--;
+  if (r->instances < 0) {
+    *exit = BLOCK_R;
+    *name = strdup(r->name);
     pthread_mutex_unlock(&mutex_resources_array);
-    return NULL;
+    return request_cpu_interrupt(1, socket_cpu_dispatch);
   }
-  *exit = FINISH;
   pthread_mutex_unlock(&mutex_resources_array);
-  return request_cpu_interrupt(1, socket_cpu_dispatch);
+  return NULL;
 }
 
 process_t *response_signal(packet_t *res, interrupt *exit,
                            int socket_cpu_dispatch) {
   char *resource_name = packet_read_string(res);
   int resource_i = get_resource_id(resource_name);
+  if (resource_i != -1) {
+    pthread_mutex_unlock(&mutex_resources_array);
+    log_error(logger, "No existe el recurso %s finalizando proceso",
+              resource_name);
+    *exit = FINISH;
+    return request_cpu_interrupt(1, socket_cpu_dispatch);
+  }
 
   pthread_mutex_lock(&mutex_resources_array);
   resource *r = &resources_array[resource_i];
 
-  if (resource_i != -1) {
-    if (r->instances < 0) {
-      pthread_t th;
-      pthread_create(&th, NULL, &unblock_process_resource, resource_name);
-      pthread_detach(th);
-    }
-    pthread_mutex_lock(&mutex_exec);
-    char *key = ui32tostr(exec->pid);
-    pthread_mutex_unlock(&mutex_exec);
+  if (r->instances < 0) {
+    pthread_t th;
+    pthread_create(&th, NULL, &unblock_process_resource, resource_name);
+    pthread_detach(th);
+  }
+  pthread_mutex_lock(&mutex_exec);
+  char *key = ui32tostr(exec->pid);
+  pthread_mutex_unlock(&mutex_exec);
 
-    pthread_mutex_lock(&mutex_resource_dict);
-    int *taken_resources = dictionary_get(resource_dict, key);
-    pthread_mutex_unlock(&mutex_resource_dict);
+  pthread_mutex_lock(&mutex_resource_dict);
+  int *taken_resources = dictionary_get(resource_dict, key);
+  pthread_mutex_unlock(&mutex_resource_dict);
 
-    if (taken_resources[resource_i] == 0) {
-      pthread_mutex_unlock(&mutex_resources_array);
-      return NULL;
-    }
-
-    pthread_mutex_lock(&mutex_resource_dict);
-    taken_resources[resource_i]--;
-    pthread_mutex_unlock(&mutex_resource_dict);
-
-    free(key);
-    r->instances++;
+  if (taken_resources[resource_i] == 0) {
     pthread_mutex_unlock(&mutex_resources_array);
     return NULL;
   }
+
+  pthread_mutex_lock(&mutex_resource_dict);
+  taken_resources[resource_i]--;
+  pthread_mutex_unlock(&mutex_resource_dict);
+
+  free(key);
+  r->instances++;
   pthread_mutex_unlock(&mutex_resources_array);
-  *exit = FINISH;
-  return request_cpu_interrupt(1, socket_cpu_dispatch);
+  return NULL;
 }
 
 int is_io_compatible(char *name, instruction_op op) {

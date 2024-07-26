@@ -118,6 +118,8 @@ status_code solicitar_marco_de_memoria(uint32_t pid, uint32_t page_number,
     return ERROR;
   }
   *frame_number = packet_read_uint32(res);
+  log_info(logger, "Pid: %u - Obtener marco - Pagina: %u - Marco: %u", pid,
+           page_number, *frame_number);
   packet_destroy(res);
   return OK;
 }
@@ -149,7 +151,7 @@ void actualizar_tlb(uint32_t pid, uint32_t frame_number, int page_number) {
     if (strcmp(algoritmo_tlb, "FIFO") == 0) {
       int index_to_remove = 0;
       t_tlb *entry_to_remove = list_get(tlb, index_to_remove);
-      log_debug(
+      log_info(
           logger,
           "[TLB] Se reemplaza pagina %d del Pid %d por pagina %d del Pid %d",
           entry_to_remove->page_number, entry_to_remove->pid,
@@ -158,7 +160,7 @@ void actualizar_tlb(uint32_t pid, uint32_t frame_number, int page_number) {
     } else if (strcmp(algoritmo_tlb, "LRU") == 0) {
       int index_to_remove = 0;
       t_tlb *entry_to_remove = list_get(tlb, index_to_remove);
-      log_debug(
+      log_info(
           logger,
           "[TLB] Se reemplaza pagina %d del Pid %d por pagina %d del Pid %d",
           entry_to_remove->page_number, entry_to_remove->pid,
@@ -180,9 +182,7 @@ uint32_t calcular_desplazamiento(uint32_t logical_addres,
 
 uint32_t translate_address(uint32_t logical_address, uint32_t pid,
                            status_code *res) {
-  *res = OK;
-  log_info(logger, "Traduciendo dirección lógica %u para el PID %d",
-           logical_address, pid);
+  *res = ERROR;
   uint32_t tamanio_pagina = solicitar_tamanio_pagina();
 
   uint32_t page_number = numero_pagina(logical_address, tamanio_pagina);
@@ -198,12 +198,12 @@ uint32_t translate_address(uint32_t logical_address, uint32_t pid,
       *res = solicitar_marco_de_memoria(pid, page_number, &frame_number);
       actualizar_tlb(pid, frame_number, page_number);
     }
+    *res = OK;
   } else
     *res = solicitar_marco_de_memoria(pid, page_number, &frame_number);
 
   if (*res == OK) {
     uint32_t physical_address = (frame_number * tamanio_pagina) + offset;
-    log_info(logger, "Dirección fisica %u", physical_address);
     return physical_address;
   }
 
@@ -353,7 +353,7 @@ status_code exec_instruction(instruction_op op, t_list *params,
     instruction_jnz(params, &pc);
     break;
   case IO_GEN_SLEEP:
-    instruction_io_gen_sleep(params, instruction_packet);
+    instruction_io_gen_sleep(params, instruction_packet, pid);
     break;
   case MOV_IN: {
     uint32_t tamanio_pagina = solicitar_tamanio_pagina();
@@ -424,7 +424,7 @@ status_code exec_instruction(instruction_op op, t_list *params,
 
 void free_param(void *p) {
   param *parameter = (param *)p;
-  
+
   free(parameter);
 }
 

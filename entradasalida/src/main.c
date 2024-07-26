@@ -67,7 +67,10 @@ void sigint_handler() {
 int ceil_div(uint32_t num, int denom) { return (num + denom - 1) / denom; }
 
 void interfaz_generica(packet_t *res) {
+  uint32_t pid = packet_read_uint32(res);
   uint32_t tiempo_espera = packet_read_uint32(res);
+  log_info(logger, "Pid: %u - Operacion a realizar %s", pid,
+           instruction_op_to_string(IO_GEN_SLEEP));
   log_info(logger, "Esperando %u segundos",
            (tiempo_espera * tiempo_unidad_trabajo_ms) / 1000);
   usleep(tiempo_unidad_trabajo_ms * tiempo_espera * 1000);
@@ -79,13 +82,13 @@ void interfaz_generica(packet_t *res) {
 void interfaz_stdout(packet_t *res) {
   uint32_t pid = packet_read_uint32(res);
   uint32_t splits = packet_read_uint32(res);
-  uint32_t total_size = 0;
+  log_info(logger, "Pid: %u - Operacion a realizar %s", pid,
+           instruction_op_to_string(IO_STDOUT_WRITE));
 
   buffer_t *buffer_write = buffer_create();
   for (int i = 0; i < splits; i++) {
     uint32_t address = packet_read_uint32(res);
     uint32_t size = packet_read_uint32(res);
-    total_size += size;
     int socket_memoria = connection_create_client(ip_memoria, puerto_memoria);
     if (socket_memoria == -1) {
       clean_up();
@@ -109,9 +112,7 @@ void interfaz_stdout(packet_t *res) {
     packet_destroy(res_memoria);
   }
 
-  buffer_add_uint8(buffer_write, '\0');
-
-  for (int i = 0; i < total_size + 1; i++) {
+  for (int i = 0; i < buffer_write->size; i++) {
     uint8_t byte = buffer_read_uint8(buffer_write);
     printf("%c", byte);
   }
@@ -124,6 +125,8 @@ void interfaz_stdout(packet_t *res) {
 
 void interfaz_stdin(packet_t *res) {
   uint32_t pid = packet_read_uint32(res);
+  log_info(logger, "Pid: %u - Operacion a realizar %s", pid,
+           instruction_op_to_string(IO_STDIN_READ));
   uint32_t size = packet_read_uint32(res);
   uint32_t splits = packet_read_uint32(res);
 
@@ -311,14 +314,13 @@ void create_metadata(char *file_name, int initial_block) {
 
 void destroy_metadata(char *file_name) { remove(file_name); }
 
-void fs_create(char *file_name) {
+void fs_create(char *file_name, uint32_t pid) {
   int bitmap_fd = get_bitmap_fd(O_RDWR);
   struct flock lock = file_lock(bitmap_fd, F_WRLCK, 0, 0);
 
   t_bitarray *bitmap = get_bitarray_bitmap(bitmap_fd);
   int free_block = get_next_free_block(bitmap);
   if (free_block == -1) {
-    // no hay mas bloques libres
     free_bitarray_bitmap(bitmap, bitmap_fd);
     return;
   }
@@ -328,9 +330,10 @@ void fs_create(char *file_name) {
 
   free_bitarray_bitmap(bitmap, bitmap_fd);
   create_metadata(file_name, free_block);
+  log_info(logger, "PID: %u - Crear Archivo: %s", pid, file_name);
 }
 
-void fs_delete(char *file_name) {
+void fs_delete(char *file_name, uint32_t pid) {
   int file_size = get_metadata(file_name, FILE_SIZE_KEY);
   if (file_size == -1) {
     log_error(logger, "El archivo %s no existe", file_name);
@@ -358,12 +361,17 @@ void fs_delete(char *file_name) {
 
   free_bitarray_bitmap(bitmap, bitmap_fd);
   destroy_metadata(file_name);
+  log_info(logger, "PID: %u - Eliminar Archivo: %s", pid, file_name);
 }
 
 void fs_read(char *file_name, uint32_t pid, packet_t *req) {
   uint32_t size = packet_read_uint32(req);
   uint32_t offset = packet_read_uint32(req);
   uint32_t address = packet_read_uint32(req);
+  log_info(logger,
+           "PID: %u - Leer Archivo: %s - Tamaño a Leer: %u - Puntero "
+           "Archivo: %u",
+           pid, file_name, size, offset);
 
   int initial_block = get_metadata(file_name, INITIAL_BLOCK_KEY);
 
@@ -390,6 +398,10 @@ void fs_write(char *file_name, uint32_t pid, packet_t *req) {
   uint32_t size = packet_read_uint32(req);
   uint32_t offset = packet_read_uint32(req);
   uint32_t address = packet_read_uint32(req);
+  log_info(logger,
+           "PID: %u - Escribir Archivo: %s - Tamaño a Leer: %u - Puntero "
+           "Archivo: %u",
+           pid, file_name, size, offset);
 
   int socket = connection_create_client(ip_memoria, puerto_memoria);
   packet_t *req_memoria = packet_create(READ_DIR);
@@ -454,9 +466,9 @@ t_list *get_file_name_initial_block_list() {
   return NULL;
 }
 
-void compact(t_bitarray *bitmap) {
+void compact(t_bitarray *bitmap, uint32_t pid) {
+  log_info(logger, "Pid: %u - Inicio de compactacion", pid);
   t_list *list = get_file_name_initial_block_list();
-  log_debug(logger, "Compactando");
   usleep(1000 * retraso_compactacion);
   int compacts = 0;
   do {
@@ -491,6 +503,7 @@ void compact(t_bitarray *bitmap) {
     set_metadata(item->file_name, INITIAL_BLOCK_KEY, item->initial_block);
   }
   list_destroy_and_destroy_elements(list, &free_file_name_initial_block);
+  log_info(logger, "Pid: %u - Fin de compactacion", pid);
 }
 
 int can_file_extend(t_bitarray *bitmap, char *file_name, int blocks_to_extend) {
@@ -520,11 +533,14 @@ int can_file_extend(t_bitarray *bitmap, char *file_name, int blocks_to_extend) {
   return -2;
 }
 
-void fs_truncate(char *file_name, packet_t *req) {
+void fs_truncate(char *file_name, uint32_t pid, packet_t *req) {
   uint32_t size = packet_read_uint32(req);
 
+  log_info(logger, "Pid: %u - Truncar archivo: %s - Tamanio: %u", pid,
+           file_name, size);
+
   if (size == 0)
-    return fs_delete(file_name);
+    return fs_delete(file_name, pid);
   uint32_t file_size = get_metadata(file_name, FILE_SIZE_KEY);
 
   if (file_size == size)
@@ -552,7 +568,7 @@ void fs_truncate(char *file_name, packet_t *req) {
     if (block_difference == 0)
       return;
     int free_block = can_file_extend(bitmap, file_name, block_difference);
-    if (free_block == -2) { // Out of memory
+    if (free_block == -2) {
       log_error(logger,
                 "No se puede ampliar el archivo %s por falta de memoria",
                 file_name);
@@ -560,7 +576,7 @@ void fs_truncate(char *file_name, packet_t *req) {
     } else if (free_block == -1) {
       buffer_t *buff = read_n_blocks(initial_block, file_blocks);
       dealloc_n_blocks(bitmap, initial_block, file_blocks);
-      compact(bitmap);
+      compact(bitmap, pid);
       int new_initial_block = get_next_free_block(bitmap);
       alloc_n_blocks(bitmap, new_initial_block, file_blocks + block_difference);
       set_bitarray_bitmap(bitmap, fd);
@@ -587,7 +603,6 @@ void create_bitmap() {
     return;
   }
   file_create(bitmap_path);
-  log_debug(logger, "Creating %s", bitmap_path);
   FILE *bitmap_file = fopen(bitmap_path, "w");
   uint8_t write = 0;
   for (int i = 0; i < block_count / 8; i++)
@@ -603,7 +618,6 @@ void create_blocks() {
     return;
   }
   file_create(blocks_path);
-  log_debug(logger, "Creating %s", blocks_path);
   FILE *blocks_file = fopen(blocks_path, "w");
   uint8_t write = 0;
   for (int i = 0; i < block_count * block_size; i++)
@@ -623,9 +637,12 @@ void interfaz_dialfs(packet_t *res) {
   char *parsed_file_name = parse_file_name(file_name);
   free(file_name);
 
+  log_info(logger, "Pid: %u - Operacion a realizar %s", pid,
+           instruction_op_to_string(op));
+
   switch (op) {
   case IO_FS_CREATE:
-    fs_create(parsed_file_name);
+    fs_create(parsed_file_name, pid);
     break;
   case IO_FS_READ:
     fs_read(parsed_file_name, pid, res);
@@ -634,10 +651,10 @@ void interfaz_dialfs(packet_t *res) {
     fs_write(parsed_file_name, pid, res);
     break;
   case IO_FS_DELETE:
-    fs_delete(parsed_file_name);
+    fs_delete(parsed_file_name, pid);
     break;
   case IO_FS_TRUNCATE:
-    fs_truncate(parsed_file_name, res);
+    fs_truncate(parsed_file_name, pid, res);
     break;
   default:
     break;
