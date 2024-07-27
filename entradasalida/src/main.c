@@ -64,8 +64,6 @@ void sigint_handler() {
   exit(EXIT_FAILURE);
 }
 
-int ceil_div(uint32_t num, int denom) { return (num + denom - 1) / denom; }
-
 void interfaz_generica(packet_t *res) {
   uint32_t pid = packet_read_uint32(res);
   uint32_t tiempo_espera = packet_read_uint32(res);

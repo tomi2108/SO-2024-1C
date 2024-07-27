@@ -222,4 +222,6 @@ void instruction_signal(t_list *params, packet_t *instruction_packet,
 
 void instruction_exit();
 
+int ceil_div(uint32_t num, int denom);
+
 #endif
