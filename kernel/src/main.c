@@ -203,7 +203,9 @@ status_code request_init_process(char *path) {
 void send_to_ready(process_t *process) {
   pthread_mutex_lock(&mutex_ready);
   queue_push(ready_queue, process);
+  printf("\x1b[32m");
   print_process_queue(ready_queue, "READY");
+  printf("\x1b[0m");
   pthread_mutex_unlock(&mutex_ready);
   sem_post(&sem_ready_full);
 }
@@ -877,8 +879,7 @@ process_t *response_signal(packet_t *res, interrupt *exit,
                            int socket_cpu_dispatch) {
   char *resource_name = packet_read_string(res);
   int resource_i = get_resource_id(resource_name);
-  if (resource_i != -1) {
-    pthread_mutex_unlock(&mutex_resources_array);
+  if (resource_i == -1) {
     log_error(logger, "No existe el recurso %s finalizando proceso",
               resource_name);
     *exit = FINISH;
@@ -1110,6 +1111,12 @@ void planificacion_vrr() {
   interrupt exit = 0;
   char *name = NULL;
 
+  pthread_mutex_lock(&mutex_exec);
+  int exec_pid = -1;
+  if (exec != NULL)
+    exec_pid = exec->pid;
+  pthread_mutex_unlock(&mutex_exec);
+
   while (updated_process == NULL) {
     if (end_timer <= 0)
       break;
@@ -1128,15 +1135,12 @@ void planificacion_vrr() {
   if (updated_process != NULL)
     updated_process->quantum = end_timer < 0 ? 0 : end_timer;
 
-  pthread_mutex_lock(&mutex_exec);
-  int pid = exec->pid;
-  pthread_mutex_unlock(&mutex_exec);
-
   block_if_scheduler_off();
 
   pthread_mutex_lock(&mutex_exec);
-  int ret = exec == NULL || exec->pid != pid;
+  int ret = exec_pid == -1 || exec == NULL || exec->pid != exec_pid;
   pthread_mutex_unlock(&mutex_exec);
+
   if (ret)
     return;
   empty_exec();
@@ -1181,6 +1185,12 @@ void planificacion_rr() {
   interrupt exit = 0;
   char *name = NULL;
 
+  pthread_mutex_lock(&mutex_exec);
+  int exec_pid = -1;
+  if (exec != NULL)
+    exec_pid = exec->pid;
+  pthread_mutex_unlock(&mutex_exec);
+
   while (updated_process == NULL) {
     if (end_timer <= 0)
       break;
@@ -1196,17 +1206,14 @@ void planificacion_rr() {
       request_cpu_interrupt(0, socket_cpu_dispatch);
   }
 
-  pthread_mutex_lock(&mutex_exec);
-  int pid = exec->pid;
-  pthread_mutex_unlock(&mutex_exec);
-
   block_if_scheduler_off();
 
   pthread_mutex_lock(&mutex_exec);
-  int ret = exec == NULL || exec->pid != pid;
+  int ret = exec_pid == -1 || exec == NULL || exec->pid != exec_pid;
   pthread_mutex_unlock(&mutex_exec);
   if (ret)
     return;
+
   empty_exec();
 
   if (end_timer <= 0 && updated_process == NULL) {
@@ -1241,17 +1248,17 @@ void planificacion_fifo() {
   interrupt exit = 0;
   char *name = NULL;
 
-  while (updated_process == NULL) {
-    updated_process = wait_process_exec(socket_cpu_dispatch, &exit, &name);
-    if (updated_process == NULL)
-      request_cpu_interrupt(0, socket_cpu_dispatch);
-  }
-
   pthread_mutex_lock(&mutex_exec);
   int exec_pid = -1;
   if (exec != NULL)
     exec_pid = exec->pid;
   pthread_mutex_unlock(&mutex_exec);
+
+  while (updated_process == NULL) {
+    updated_process = wait_process_exec(socket_cpu_dispatch, &exit, &name);
+    if (updated_process == NULL)
+      request_cpu_interrupt(0, socket_cpu_dispatch);
+  }
 
   block_if_scheduler_off();
 
