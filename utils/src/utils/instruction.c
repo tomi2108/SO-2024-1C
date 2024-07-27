@@ -157,7 +157,7 @@ void instruction_io_gen_sleep(t_list *params, packet_t *instruction_packet,
   param *second_param = list_get(params, 1);
 
   packet_add_string(instruction_packet, (char *)first_param->value);
-  packet_add_string(instruction_packet, pid);
+  packet_add_uint32(instruction_packet, pid);
   packet_add_uint32(instruction_packet, *(uint32_t *)second_param->value);
 }
 
