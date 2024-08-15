@@ -1,7 +1,6 @@
-# tp-scaffold
+# tp-1C-2024
 
-Esta es una plantilla de proyecto diseñada para generar un TP de Sistemas
-Operativos de la UTN FRBA.
+Mi solucion al tp de Sistemas Operativos 2024 1C... no es perfecta, pero funca :)
 
 ## Dependencias
 
@@ -25,35 +24,7 @@ El ejecutable resultante se guardará en la carpeta `bin` del módulo.
 
 ## Importar desde Visual Studio Code
 
-Para importar el workspace, debemos abrir el archivo `tp.code-workspace` desde
-la interfaz o ejecutando el siguiente comando desde la carpeta raíz del
-repositorio:
-
-```bash
-code tp.code-workspace
-```
-
-## Checkpoint
-
-Para cada checkpoint de control obligatorio, se debe crear un tag en el
-repositorio con el siguiente formato:
-
-```
-checkpoint-{número}
-```
-
-Donde `{número}` es el número del checkpoint.
-
-Para crear un tag y subirlo al repositorio, podemos utilizar los siguientes
-comandos:
-
-```bash
-git tag -a checkpoint-{número} -m "Checkpoint {número}"
-git push origin checkpoint-{número}
-```
-
-Asegúrense de que el código compila y cumple con los requisitos del checkpoint
-antes de subir el tag.
+VsCode??? pff...
 
 ## Entrega
 
